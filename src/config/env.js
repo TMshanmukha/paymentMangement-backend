@@ -1,31 +1,51 @@
-import dotenv from 'dotenv';
-dotenv.config();
+import mysql from 'mysql2/promise';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { env } from './env.js';
 
-function required(name, fallback) {
-  const val = process.env[name] ?? fallback;
-  if (val === undefined) {
-    // eslint-disable-next-line no-console
-    console.warn(`[env] Missing environment variable: ${name}`);
-  }
-  return val;
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const poolConfig = {
+  host: env.DB_HOST,
+  port: env.DB_PORT,
+  user: env.DB_USER,
+  password: env.DB_PASSWORD,
+  database: env.DB_NAME,
+
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0,
+};
+
+// Use TiDB TLS when DB_SSL is enabled
+if (process.env.DB_SSL === 'true') {
+  poolConfig.ssl = {
+    ca: fs.readFileSync(
+      path.join(__dirname, '../../certs/ca.pem')
+    ),
+    rejectUnauthorized: true,
+  };
 }
 
-export const env = {
-  NODE_ENV: process.env.NODE_ENV || 'development',
-  PORT: Number(process.env.PORT || 5000),
+export const pool = mysql.createPool(poolConfig);
 
-  DB_HOST: required('DB_HOST', 'localhost'),
-  DB_PORT: Number(process.env.DB_PORT || 3306),
-  DB_NAME: required('DB_NAME', 'eduledger'),
-  DB_USER: required('DB_USER', 'root'),
-  DB_PASSWORD: process.env.DB_PASSWORD || '',
+export async function testDatabaseConnection() {
+  let connection;
 
-  JWT_SECRET: required('JWT_SECRET', 'dev-only-change-me'),
-  JWT_ACCESS_EXPIRY: process.env.JWT_ACCESS_EXPIRY || '15m',
-  JWT_REFRESH_EXPIRY: process.env.JWT_REFRESH_EXPIRY || '7d',
-  JWT_REFRESH_EXPIRY_MS: 7 * 24 * 60 * 60 * 1000,
+  try {
+    connection = await pool.getConnection();
 
-  COOKIE_SECRET: required('COOKIE_SECRET', 'dev-only-change-me-too'),
+    await connection.query('SELECT 1');
 
-  CORS_ORIGIN: process.env.CORS_ORIGIN || 'http://localhost:5173',
-};
+    console.log('✅ Database connected successfully');
+  } catch (error) {
+    console.error('❌ Database connection failed:', error);
+    throw error;
+  } finally {
+    if (connection) {
+      connection.release();
+    }
+  }
+}
