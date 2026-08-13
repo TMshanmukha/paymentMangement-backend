@@ -1,0 +1,31 @@
+{
+  "name": "eduledger-backend",
+  "version": "1.0.0",
+  "description": "EduLedger - School & Tuition Fee Management System (Backend API)",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js",
+    "seed:hash": "node src/utils/generateSeedHashes.js"
+  },
+  "dependencies": {
+    "bcrypt": "^5.1.1",
+    "cookie-parser": "^1.4.6",
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.4.0",
+    "helmet": "^7.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "morgan": "^1.10.0",
+    "mysql2": "^3.11.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.4"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
