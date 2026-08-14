@@ -6,6 +6,11 @@ export const list = asyncHandler(async (req, res) => {
   res.json({ success: true, data: result });
 });
 
+export const listClasses = asyncHandler(async (req, res) => {
+  const result = await studentService.listClasses(req.user);
+  res.json({ success: true, data: result });
+});
+
 export const getOne = asyncHandler(async (req, res) => {
   const student = await studentService.getStudentById(req.user, req.params.id);
   res.json({ success: true, data: student });

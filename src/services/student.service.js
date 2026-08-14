@@ -19,6 +19,7 @@ function assertTypeAllowed(scope, studentType) {
 export async function listStudents(user, query) {
   const scope = scopeForRole(user.role);
   const { studentType, status, academicYearId, search, dueOnly, page, pageSize } = query;
+  const className = query.class;
 
   const where = [];
   const params = [];
@@ -46,6 +47,14 @@ export async function listStudents(user, query) {
   }
   if (dueOnly) {
     where.push('student_id IN (SELECT student_id FROM v_student_dues WHERE due_amount > 0)');
+  }
+  if (className !== undefined) {
+    if (className === '' || className === 'null') {
+      where.push('(class IS NULL OR class = "")');
+    } else {
+      where.push('class = ?');
+      params.push(className);
+    }
   }
 
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
@@ -192,4 +201,25 @@ export async function updateStudentStatus(user, id, status) {
     description: `Student #${id} status changed to ${status}`,
   });
   return getStudentById(user, id);
+}
+
+export async function listClasses(user) {
+  const scope = scopeForRole(user.role);
+  const params = [];
+  let sql = `
+    SELECT
+      class,
+      COUNT(*) AS student_count,
+      SUM(total_fee) AS total_fee,
+      SUM(paid_amount) AS paid_amount,
+      SUM(due_amount) AS due_amount
+    FROM v_student_dues
+  `;
+  if (scope) {
+    sql += ' WHERE student_type = ?';
+    params.push(scope);
+  }
+  sql += ' GROUP BY class ORDER BY class ASC';
+  const [rows] = await pool.query(sql, params);
+  return rows;
 }
