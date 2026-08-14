@@ -69,24 +69,31 @@ export async function getDashboardSummary(user) {
     sc.param ? [sc.param] : []
   );
 
+  const isAccountant = user.role !== 'ADMIN';
+
   return {
-    todayCollection: todayRow.today_collection,
-    todayExpenses: expenseRow.today_expenses,
-    todayNetCollection: todayRow.today_collection - expenseRow.today_expenses,
-    totalOutstandingDue: dueRow.total_outstanding_due,
-    schoolCollection: todayRow.school_collection,
-    tuitionCollection: todayRow.tuition_collection,
-    cashCollection: todayRow.cash_collection,
-    upiCollection: todayRow.upi_collection,
-    todayTransactionCount: todayRow.today_transaction_count,
+    todayCollection: Number(todayRow.today_collection),
+    todayExpenses: isAccountant ? 0 : Number(expenseRow.today_expenses),
+    todayNetCollection: isAccountant ? Number(todayRow.today_collection) : Number(todayRow.today_collection) - Number(expenseRow.today_expenses),
+    totalOutstandingDue: Number(dueRow.total_outstanding_due),
+    schoolCollection: scope === 'TUITION' ? 0 : Number(todayRow.school_collection),
+    tuitionCollection: scope === 'SCHOOL' ? 0 : Number(todayRow.tuition_collection),
+    cashCollection: Number(todayRow.cash_collection),
+    upiCollection: Number(todayRow.upi_collection),
+    todayTransactionCount: Number(todayRow.today_transaction_count),
     studentSummary: {
-      totalStudents: dueRow.total_students,
-      studentsWithDue: dueRow.students_with_due,
-      studentsFullyPaid: dueRow.students_fully_paid,
+      totalStudents: Number(dueRow.total_students),
+      studentsWithDue: Number(dueRow.students_with_due),
+      studentsFullyPaid: Number(dueRow.students_fully_paid),
     },
     recentPayments,
-    recentExpenses,
-    monthlyChart,
+    recentExpenses: isAccountant ? [] : recentExpenses,
+    monthlyChart: monthlyChart.map(m => ({
+      month: m.month,
+      school: scope === 'TUITION' ? 0 : Number(m.school),
+      tuition: scope === 'SCHOOL' ? 0 : Number(m.tuition),
+      total: scope === 'SCHOOL' ? Number(m.school) : (scope === 'TUITION' ? Number(m.tuition) : Number(m.total))
+    })),
   };
 }
 

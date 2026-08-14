@@ -7,10 +7,10 @@ router.use(authenticate);
 const ALL_STAFF = ['ADMIN', 'SCHOOL_ACCOUNTANT', 'TUITION_ACCOUNTANT'];
 
 router.get('/dashboard', authorize(...ALL_STAFF), reportController.dashboard);
-router.get('/daily', authorize(...ALL_STAFF), reportController.daily);
-router.get('/monthly', authorize(...ALL_STAFF), reportController.monthly);
-router.get('/date-range', authorize(...ALL_STAFF), reportController.dateRange);
-router.get('/accountant', authorize(...ALL_STAFF), reportController.accountant);
-router.get('/due', authorize(...ALL_STAFF), reportController.due);
+router.get('/daily', authorize('ADMIN'), reportController.daily);
+router.get('/monthly', authorize('ADMIN'), reportController.monthly);
+router.get('/date-range', authorize('ADMIN'), reportController.dateRange);
+router.get('/accountant', authorize('ADMIN'), reportController.accountant);
+router.get('/due', authorize('ADMIN'), reportController.due);
 
 export default router;
