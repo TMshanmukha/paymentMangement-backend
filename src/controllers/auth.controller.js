@@ -3,10 +3,13 @@ import * as authService from '../services/auth.service.js';
 import { env } from '../config/env.js';
 
 const REFRESH_COOKIE_NAME = 'eduledger_refresh';
+const isProduction = env.NODE_ENV === 'production';
+const useSecureCookie = isProduction || env.CORS_ORIGIN.startsWith('https://');
+
 const cookieOptions = {
   httpOnly: true,
-  secure: env.NODE_ENV === 'production',
-  sameSite: 'lax',
+  secure: useSecureCookie,
+  sameSite: useSecureCookie ? 'none' : 'lax',
   maxAge: env.JWT_REFRESH_EXPIRY_MS,
   path: '/api/auth',
 };
@@ -26,7 +29,8 @@ export const refresh = asyncHandler(async (req, res) => {
 
 export const logout = asyncHandler(async (req, res) => {
   await authService.logout(req.user?.id, req.ip);
-  res.clearCookie(REFRESH_COOKIE_NAME, { path: '/api/auth' });
+  const { maxAge, ...clearOptions } = cookieOptions;
+  res.clearCookie(REFRESH_COOKIE_NAME, clearOptions);
   res.json({ success: true, message: 'Logged out successfully' });
 });
 

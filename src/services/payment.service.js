@@ -72,12 +72,15 @@ export async function createPayment(user, data) {
       );
     }
 
+    const tempReceipt = 'TEMP-' + Math.random().toString(36).substring(2, 10);
+
     const [result] = await conn.query(
       `INSERT INTO payments
          (receipt_number, student_id, academic_year_id, student_type, amount, payment_method,
           payment_date, remarks, received_by, status)
-       VALUES ('PENDING', ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED')`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED')`,
       [
+        tempReceipt,
         data.studentId,
         student.academic_year_id,
         student.student_type,
@@ -87,6 +90,14 @@ export async function createPayment(user, data) {
         data.remarks || null,
         user.id,
       ]
+    );
+
+    const insertId = result.insertId;
+    const receiptNumber = `REC-${String(insertId).padStart(6, '0')}`;
+
+    await conn.query(
+      'UPDATE payments SET receipt_number = ? WHERE id = ?',
+      [receiptNumber, insertId]
     );
 
     await writeAudit({

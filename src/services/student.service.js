@@ -1,4 +1,4 @@
-import { pool } from '../db/pool.js';
+import { pool, withTransaction } from '../db/pool.js';
 import { ApiError } from '../utils/ApiError.js';
 import { writeAudit } from '../utils/audit.js';
 import { scopeForRole } from '../middleware/auth.js';
@@ -90,37 +90,52 @@ export async function createStudent(user, data) {
   const scope = scopeForRole(user.role);
   assertTypeAllowed(scope, data.studentType);
 
-  const [result] = await pool.query(
-    `INSERT INTO students
-       (student_code, name, parent_name, parent_phone, student_phone, class, section,
-        student_type, academic_year_id, total_fee, joining_date, address, status, created_by)
-     VALUES ('PENDING', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      data.name,
-      data.parentName,
-      data.parentPhone,
-      data.studentPhone || null,
-      data.class || null,
-      data.section || null,
-      data.studentType,
-      data.academicYearId,
-      data.totalFee,
-      data.joiningDate,
-      data.address || null,
-      data.status || 'ACTIVE',
-      user.id,
-    ]
-  );
+  const tempCode = 'TEMP-' + Math.random().toString(36).substring(2, 10);
 
-  await writeAudit({
-    userId: user.id,
-    action: 'STUDENT_CREATED',
-    entity: 'student',
-    entityId: result.insertId,
-    description: `${data.name} added as ${data.studentType} student`,
+  return withTransaction(async (conn) => {
+    const [result] = await conn.query(
+      `INSERT INTO students
+         (student_code, name, parent_name, parent_phone, student_phone, class, section,
+          student_type, academic_year_id, total_fee, joining_date, address, status, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        tempCode,
+        data.name,
+        data.parentName,
+        data.parentPhone,
+        data.studentPhone || null,
+        data.class || null,
+        data.section || null,
+        data.studentType,
+        data.academicYearId,
+        data.totalFee,
+        data.joiningDate,
+        data.address || null,
+        data.status || 'ACTIVE',
+        user.id,
+      ]
+    );
+
+    const insertId = result.insertId;
+    const studentCode = `STU-${String(insertId).padStart(6, '0')}`;
+
+    await conn.query(
+      'UPDATE students SET student_code = ? WHERE id = ?',
+      [studentCode, insertId]
+    );
+
+    await writeAudit({
+      conn,
+      userId: user.id,
+      action: 'STUDENT_CREATED',
+      entity: 'student',
+      entityId: insertId,
+      description: `${data.name} added as ${data.studentType} student`,
+    });
+
+    const [studentRows] = await conn.query('SELECT * FROM v_student_dues WHERE student_id = ? LIMIT 1', [insertId]);
+    return studentRows[0];
   });
-
-  return getStudentById(user, result.insertId);
 }
 
 export async function updateStudent(user, id, data) {
