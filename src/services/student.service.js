@@ -203,7 +203,7 @@ export async function updateStudentStatus(user, id, status) {
   return getStudentById(user, id);
 }
 
-export async function listClasses(user) {
+export async function listClasses(user, academicYearId) {
   const scope = scopeForRole(user.role);
   const params = [];
   let sql = `
@@ -215,9 +215,17 @@ export async function listClasses(user) {
       SUM(due_amount) AS due_amount
     FROM v_student_dues
   `;
+  const conditions = [];
   if (scope) {
-    sql += ' WHERE student_type = ?';
+    conditions.push('student_type = ?');
     params.push(scope);
+  }
+  if (academicYearId) {
+    conditions.push('academic_year_id = ?');
+    params.push(academicYearId);
+  }
+  if (conditions.length) {
+    sql += ' WHERE ' + conditions.join(' AND ');
   }
   sql += ' GROUP BY class ORDER BY class ASC';
   const [rows] = await pool.query(sql, params);

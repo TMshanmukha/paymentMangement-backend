@@ -6,6 +6,7 @@ import morgan from 'morgan';
 import { env } from './config/env.js';
 import routes from './routes/index.js';
 import { notFoundHandler, errorHandler } from './middleware/errorHandler.js';
+import { academicYear } from './middleware/academicYear.js';
 
 const app = express();
 
@@ -18,6 +19,7 @@ if (env.NODE_ENV !== 'test') {
   app.use(morgan(env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 }
 
+app.use(academicYear);
 app.use('/api', routes);
 
 app.use(notFoundHandler);

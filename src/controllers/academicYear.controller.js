@@ -6,6 +6,11 @@ export const list = asyncHandler(async (req, res) => {
   res.json({ success: true, data });
 });
 
+export const getCurrent = asyncHandler(async (req, res) => {
+  const data = await academicYearService.getCurrentAcademicYear();
+  res.json({ success: true, data });
+});
+
 export const create = asyncHandler(async (req, res) => {
   const data = await academicYearService.createAcademicYear(req.body);
   res.status(201).json({ success: true, message: 'Academic year created', data });

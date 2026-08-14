@@ -14,7 +14,7 @@ function assertTypeAllowed(scope, expenseType) {
 
 export async function listExpenses(user, query) {
   const scope = scopeForRole(user.role);
-  const { date, fromDate, toDate, expenseType, categoryId, paymentMethod, page, pageSize } = query;
+  const { date, fromDate, toDate, expenseType, categoryId, paymentMethod, academicYearId, page, pageSize } = query;
 
   const where = ["e.status = 'ACTIVE'"];
   const params = [];
@@ -30,6 +30,7 @@ export async function listExpenses(user, query) {
   if (fromDate && toDate) { where.push('e.expense_date BETWEEN ? AND ?'); params.push(fromDate, toDate); }
   if (categoryId) { where.push('e.category_id = ?'); params.push(categoryId); }
   if (paymentMethod) { where.push('e.payment_method = ?'); params.push(paymentMethod); }
+  if (academicYearId) { where.push('e.academic_year_id = ?'); params.push(academicYearId); }
 
   // Accountants (non-admin) may only see expenses they personally created
   if (scope) {
@@ -62,10 +63,36 @@ export async function createExpense(user, data) {
   const scope = scopeForRole(user.role);
   assertTypeAllowed(scope, data.expenseType);
 
+  let categoryId = null;
+  if (data.categoryName) {
+    const nameTrimmed = data.categoryName.trim();
+    const [catRows] = await pool.query('SELECT id FROM expense_categories WHERE LOWER(name) = LOWER(?) LIMIT 1', [nameTrimmed]);
+    if (catRows[0]) {
+      categoryId = catRows[0].id;
+    } else {
+      const [insertCat] = await pool.query(
+        "INSERT INTO expense_categories (name, expense_type, is_active) VALUES (?, 'BOTH', 1)",
+        [nameTrimmed]
+      );
+      categoryId = insertCat.insertId;
+    }
+  } else {
+    categoryId = data.categoryId;
+  }
+
   const [result] = await pool.query(
-    `INSERT INTO expenses (category_id, amount, expense_type, payment_method, expense_date, description, created_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [data.categoryId, data.amount, data.expenseType, data.paymentMethod, data.expenseDate, data.description || null, user.id]
+    `INSERT INTO expenses (category_id, amount, expense_type, payment_method, expense_date, description, created_by, academic_year_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      categoryId,
+      data.amount,
+      data.expenseType,
+      data.paymentMethod,
+      data.expenseDate,
+      data.description || null,
+      user.id,
+      data.academicYearId
+    ]
   );
 
   await writeAudit({

@@ -2,12 +2,13 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 import * as studentService from '../services/student.service.js';
 
 export const list = asyncHandler(async (req, res) => {
+  req.query.academicYearId = req.academicYearId;
   const result = await studentService.listStudents(req.user, req.query);
   res.json({ success: true, data: result });
 });
 
 export const listClasses = asyncHandler(async (req, res) => {
-  const result = await studentService.listClasses(req.user);
+  const result = await studentService.listClasses(req.user, req.academicYearId);
   res.json({ success: true, data: result });
 });
 
@@ -22,6 +23,7 @@ export const paymentHistory = asyncHandler(async (req, res) => {
 });
 
 export const create = asyncHandler(async (req, res) => {
+  req.body.academicYearId = req.academicYearId;
   const student = await studentService.createStudent(req.user, req.body);
   res.status(201).json({ success: true, message: 'Student added successfully', data: student });
 });

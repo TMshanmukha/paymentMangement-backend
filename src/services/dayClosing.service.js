@@ -3,18 +3,18 @@ import { ApiError } from '../utils/ApiError.js';
 import { writeAudit } from '../utils/audit.js';
 
 /** Computes what the accountant SHOULD have collected on a date, from actual payment rows. */
-export async function getExpectedCollection(userId, date) {
+export async function getExpectedCollection(userId, date, academicYearId) {
   const [[row]] = await pool.query(
     `SELECT COUNT(*) AS transaction_count, COALESCE(SUM(amount),0) AS overall_total,
             COALESCE(SUM(CASE WHEN payment_method='CASH' THEN amount ELSE 0 END),0) AS cash_total,
             COALESCE(SUM(CASE WHEN payment_method='UPI' THEN amount ELSE 0 END),0) AS upi_total
-     FROM payments WHERE received_by = ? AND payment_date = ? AND status='COMPLETED'`,
-    [userId, date]
+     FROM payments WHERE received_by = ? AND payment_date = ? AND status='COMPLETED' AND academic_year_id = ?`,
+    [userId, date, academicYearId]
   );
   return row;
 }
 
-export async function listDayClosings(user, query) {
+export async function listDayClosings(user, query, academicYearId) {
   const { fromDate, toDate, status, userId } = query;
   const where = [];
   const params = [];
@@ -28,6 +28,10 @@ export async function listDayClosings(user, query) {
   }
   if (fromDate && toDate) { where.push('closing_date BETWEEN ? AND ?'); params.push(fromDate, toDate); }
   if (status) { where.push('status = ?'); params.push(status); }
+  if (academicYearId) {
+    where.push('dc.academic_year_id = ?');
+    params.push(academicYearId);
+  }
 
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
   const [rows] = await pool.query(
@@ -41,7 +45,7 @@ export async function listDayClosings(user, query) {
   return rows;
 }
 
-export async function submitDayClosing(user, { closingDate, notes }) {
+export async function submitDayClosing(user, { closingDate, notes }, academicYearId) {
   return withTransaction(async (conn) => {
     const [existingRows] = await conn.query(
       'SELECT * FROM day_closings WHERE user_id = ? AND closing_date = ? FOR UPDATE',
@@ -56,8 +60,8 @@ export async function submitDayClosing(user, { closingDate, notes }) {
       `SELECT COUNT(*) AS transaction_count, COALESCE(SUM(amount),0) AS overall_total,
               COALESCE(SUM(CASE WHEN payment_method='CASH' THEN amount ELSE 0 END),0) AS cash_total,
               COALESCE(SUM(CASE WHEN payment_method='UPI' THEN amount ELSE 0 END),0) AS upi_total
-       FROM payments WHERE received_by = ? AND payment_date = ? AND status='COMPLETED'`,
-      [user.id, closingDate]
+       FROM payments WHERE received_by = ? AND payment_date = ? AND status='COMPLETED' AND academic_year_id = ?`,
+      [user.id, closingDate, academicYearId]
     );
 
     if (existing) {
@@ -68,9 +72,9 @@ export async function submitDayClosing(user, { closingDate, notes }) {
       );
     } else {
       await conn.query(
-        `INSERT INTO day_closings (user_id, closing_date, cash_total, upi_total, overall_total, transaction_count, status, submitted_at, notes)
-         VALUES (?, ?, ?, ?, ?, ?, 'SUBMITTED', NOW(), ?)`,
-        [user.id, closingDate, expected.cash_total, expected.upi_total, expected.overall_total, expected.transaction_count, notes || null]
+        `INSERT INTO day_closings (user_id, closing_date, cash_total, upi_total, overall_total, transaction_count, status, submitted_at, notes, academic_year_id)
+         VALUES (?, ?, ?, ?, ?, ?, 'SUBMITTED', NOW(), ?, ?)`,
+        [user.id, closingDate, expected.cash_total, expected.upi_total, expected.overall_total, expected.transaction_count, notes || null, academicYearId]
       );
     }
 

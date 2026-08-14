@@ -2,6 +2,7 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 import * as paymentService from '../services/payment.service.js';
 
 export const list = asyncHandler(async (req, res) => {
+  req.query.academicYearId = req.academicYearId;
   const result = await paymentService.listPayments(req.user, req.query);
   res.json({ success: true, data: result });
 });

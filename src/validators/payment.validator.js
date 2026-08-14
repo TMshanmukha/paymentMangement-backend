@@ -22,6 +22,7 @@ export const listPaymentsQuerySchema = z.object({
   receivedBy: z.coerce.number().int().positive().optional(),
   status: z.enum(['COMPLETED', 'CANCELLED', 'REVERSED']).optional(),
   search: z.string().optional(),
+  academicYearId: z.coerce.number().int().positive().optional(),
   page: z.coerce.number().int().min(1).optional().default(1),
   pageSize: z.coerce.number().int().min(1).max(200).optional().default(20),
 });

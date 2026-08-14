@@ -150,7 +150,7 @@ export async function getPaymentById(user, id) {
 
 export async function listPayments(user, query) {
   const scope = scopeForRole(user.role);
-  const { date, fromDate, toDate, studentType, paymentMethod, receivedBy, status, search, page, pageSize } = query;
+  const { date, fromDate, toDate, studentType, paymentMethod, receivedBy, status, search, academicYearId, page, pageSize } = query;
 
   const where = [];
   const params = [];
@@ -177,6 +177,10 @@ export async function listPayments(user, query) {
   if (receivedBy) {
     where.push('p.received_by = ?');
     params.push(receivedBy);
+  }
+  if (academicYearId) {
+    where.push('p.academic_year_id = ?');
+    params.push(academicYearId);
   }
   if (status) {
     where.push('p.status = ?');
