@@ -24,12 +24,13 @@ const poolConfig = {
 
 // Enable TLS for TiDB Cloud
 if (process.env.DB_SSL === 'true') {
+  const caPath = path.join(__dirname, '../../certs/ca.pem');
   poolConfig.ssl = {
-    ca: fs.readFileSync(
-      path.join(__dirname, '../../certs/ca.pem')
-    ),
     rejectUnauthorized: true,
   };
+  if (fs.existsSync(caPath)) {
+    poolConfig.ssl.ca = fs.readFileSync(caPath);
+  }
 }
 
 export const pool = mysql.createPool(poolConfig);
