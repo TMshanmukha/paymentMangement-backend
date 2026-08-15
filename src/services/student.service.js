@@ -230,7 +230,51 @@ export async function listClasses(user, academicYearId, studentType = null) {
   if (conditions.length) {
     sql += ' WHERE ' + conditions.join(' AND ');
   }
-  sql += ' GROUP BY class ORDER BY class ASC';
+  sql += ' GROUP BY class';
   const [rows] = await pool.query(sql, params);
-  return rows;
+
+  const STANDARD_CLASSES = ['Nursery', 'LKG', 'UKG', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'];
+  const dbClassMap = new Map(
+    rows.map(r => [String(r.class || '').toLowerCase().trim(), r])
+  );
+
+  const finalClasses = [];
+  const seen = new Set();
+
+  for (const stdClass of STANDARD_CLASSES) {
+    const key = stdClass.toLowerCase();
+    seen.add(key);
+    if (dbClassMap.has(key)) {
+      const record = dbClassMap.get(key);
+      finalClasses.push({
+        ...record,
+        class: stdClass
+      });
+    } else {
+      finalClasses.push({
+        class: stdClass,
+        student_count: 0,
+        total_fee: 0.0,
+        paid_amount: 0.0,
+        due_amount: 0.0
+      });
+    }
+  }
+
+  // Also include any non-standard class that has students currently
+  for (const row of rows) {
+    const className = row.class;
+    if (className === null || className === '') continue;
+    const key = String(className).toLowerCase().trim();
+    if (!seen.has(key)) {
+      finalClasses.push(row);
+    }
+  }
+
+  // Handle unassigned students separately if any exist in DB
+  if (dbClassMap.has('')) {
+    finalClasses.push(dbClassMap.get(''));
+  }
+
+  return finalClasses;
 }

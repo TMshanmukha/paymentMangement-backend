@@ -35,6 +35,24 @@ export async function getDashboardSummary(user, academicYearId) {
     scope ? [scope, academicYearId] : [academicYearId]
   );
 
+  const [[schoolDueRow]] = await pool.query(
+    `SELECT COALESCE(SUM(due_amount),0) AS total_outstanding_due,
+            COUNT(*) AS total_students,
+            SUM(CASE WHEN due_amount > 0 THEN 1 ELSE 0 END) AS students_with_due,
+            SUM(CASE WHEN due_amount <= 0 THEN 1 ELSE 0 END) AS students_fully_paid
+     FROM v_student_dues WHERE status='ACTIVE' AND student_type = 'SCHOOL' AND academic_year_id = ?`,
+    [academicYearId]
+  );
+
+  const [[tuitionDueRow]] = await pool.query(
+    `SELECT COALESCE(SUM(due_amount),0) AS total_outstanding_due,
+            COUNT(*) AS total_students,
+            SUM(CASE WHEN due_amount > 0 THEN 1 ELSE 0 END) AS students_with_due,
+            SUM(CASE WHEN due_amount <= 0 THEN 1 ELSE 0 END) AS students_fully_paid
+     FROM v_student_dues WHERE status='ACTIVE' AND student_type = 'TUITION' AND academic_year_id = ?`,
+    [academicYearId]
+  );
+
   const [[expenseRow]] = await pool.query(
     `SELECT COALESCE(SUM(amount), 0) AS today_expenses
      FROM expenses WHERE status='ACTIVE' AND expense_date = CURDATE() ${scope ? 'AND expense_type = ?' : ''} AND academic_year_id = ?`,
@@ -114,6 +132,18 @@ export async function getDashboardSummary(user, academicYearId) {
       totalStudents: Number(dueRow.total_students),
       studentsWithDue: Number(dueRow.students_with_due),
       studentsFullyPaid: Number(dueRow.students_fully_paid),
+    },
+    schoolSummary: {
+      totalOutstandingDue: Number(schoolDueRow.total_outstanding_due),
+      totalStudents: Number(schoolDueRow.total_students),
+      studentsWithDue: Number(schoolDueRow.students_with_due),
+      studentsFullyPaid: Number(schoolDueRow.students_fully_paid),
+    },
+    tuitionSummary: {
+      totalOutstandingDue: Number(tuitionDueRow.total_outstanding_due),
+      totalStudents: Number(tuitionDueRow.total_students),
+      studentsWithDue: Number(tuitionDueRow.students_with_due),
+      studentsFullyPaid: Number(tuitionDueRow.students_fully_paid),
     },
     monthlyChart: chartRows.map((m) => ({
       month: m.month_label,
