@@ -21,5 +21,5 @@ export const listExpensesQuerySchema = z.object({
   paymentMethod: z.enum(['CASH', 'UPI']).optional(),
   academicYearId: z.coerce.number().int().positive().optional(),
   page: z.coerce.number().int().min(1).optional().default(1),
-  pageSize: z.coerce.number().int().min(1).max(200).optional().default(20),
+  pageSize: z.coerce.number().int().min(1).max(10000).optional().default(20),
 });
