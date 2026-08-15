@@ -19,6 +19,7 @@ function getEffectiveScope(userRole, filterType) {
 export async function getDashboardSummary(user, academicYearId) {
   const scope = scopeForRole(user.role);
   const sc = scopeClause(scope);
+  const scp = scopeClause(scope, 'p');
 
   const [[collectionRow]] = await pool.query(
     `SELECT COALESCE(SUM(amount), 0) AS today_collection, COUNT(*) AS today_count
@@ -112,9 +113,9 @@ export async function getDashboardSummary(user, academicYearId) {
      FROM payments p
      JOIN students s ON s.id = p.student_id
      JOIN users u ON u.id = p.received_by
-     WHERE p.status='COMPLETED' ${sc.sql} AND p.academic_year_id = ?
+     WHERE p.status='COMPLETED' ${scp.sql} AND p.academic_year_id = ?
      ORDER BY p.payment_time DESC LIMIT 5`,
-    sc.param ? [sc.param, academicYearId] : [academicYearId]
+    scp.param ? [scp.param, academicYearId] : [academicYearId]
   );
 
   const [recentExpenses] = await pool.query(
