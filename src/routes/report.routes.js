@@ -11,6 +11,6 @@ router.get('/daily', authorize('ADMIN'), reportController.daily);
 router.get('/monthly', authorize('ADMIN'), reportController.monthly);
 router.get('/date-range', authorize('ADMIN'), reportController.dateRange);
 router.get('/accountant', authorize('ADMIN'), reportController.accountant);
-router.get('/due', authorize('ADMIN'), reportController.due);
+router.get('/due', authorize(...ALL_STAFF), reportController.due);
 
 export default router;
