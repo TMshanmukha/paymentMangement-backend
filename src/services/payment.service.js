@@ -25,6 +25,19 @@ async function getOverpaymentSetting(conn) {
   return rows[0]?.setting_value === 'true';
 }
 
+function getIndiaDateTimeString() {
+  const d = new Date();
+  const tzString = d.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' });
+  const localDate = new Date(tzString);
+  const yyyy = localDate.getFullYear();
+  const mm = String(localDate.getMonth() + 1).padStart(2, '0');
+  const dd = String(localDate.getDate()).padStart(2, '0');
+  const hh = String(localDate.getHours()).padStart(2, '0');
+  const min = String(localDate.getMinutes()).padStart(2, '0');
+  const ss = String(localDate.getSeconds()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd} ${hh}:${min}:${ss}`;
+}
+
 /**
  * Creates a payment inside a DB transaction with row locks, per spec section 38/15:
  *   1. Validate role can touch this student_type
@@ -73,12 +86,13 @@ export async function createPayment(user, data) {
     }
 
     const tempReceipt = 'TEMP-' + Math.random().toString(36).substring(2, 10);
+    const indiaDateTime = getIndiaDateTimeString();
 
     const [result] = await conn.query(
       `INSERT INTO payments
          (receipt_number, student_id, academic_year_id, student_type, amount, payment_method,
-          payment_date, remarks, received_by, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED')`,
+          payment_date, payment_time, remarks, received_by, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED')`,
       [
         tempReceipt,
         data.studentId,
@@ -87,6 +101,7 @@ export async function createPayment(user, data) {
         data.amount,
         data.paymentMethod,
         data.paymentDate,
+        indiaDateTime,
         data.remarks || null,
         user.id,
       ]
