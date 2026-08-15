@@ -203,7 +203,7 @@ export async function updateStudentStatus(user, id, status) {
   return getStudentById(user, id);
 }
 
-export async function listClasses(user, academicYearId) {
+export async function listClasses(user, academicYearId, studentType = null) {
   const scope = scopeForRole(user.role);
   const params = [];
   let sql = `
@@ -219,6 +219,9 @@ export async function listClasses(user, academicYearId) {
   if (scope) {
     conditions.push('student_type = ?');
     params.push(scope);
+  } else if (studentType) {
+    conditions.push('student_type = ?');
+    params.push(studentType);
   }
   if (academicYearId) {
     conditions.push('academic_year_id = ?');

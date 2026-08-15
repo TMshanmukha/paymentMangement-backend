@@ -63,6 +63,23 @@ export async function createExpense(user, data) {
   const scope = scopeForRole(user.role);
   assertTypeAllowed(scope, data.expenseType);
 
+  // Validate expense amount does not exceed total net collection for the academic year
+  const [[{ totalCollection }]] = await pool.query(
+    "SELECT COALESCE(SUM(amount), 0) AS totalCollection FROM payments WHERE status = 'COMPLETED' AND academic_year_id = ?",
+    [data.academicYearId]
+  );
+  const [[{ totalExpenses }]] = await pool.query(
+    "SELECT COALESCE(SUM(amount), 0) AS totalExpenses FROM expenses WHERE status = 'ACTIVE' AND academic_year_id = ?",
+    [data.academicYearId]
+  );
+  const availableBalance = Number(totalCollection) - Number(totalExpenses);
+  if (Number(data.amount) > availableBalance) {
+    throw ApiError.badRequest(
+      `Expense amount (₹${data.amount}) exceeds the remaining available net collection (₹${availableBalance})`,
+      'EXPENSE_EXCEEDS_COLLECTION'
+    );
+  }
+
   let categoryId = null;
   if (data.categoryName) {
     const nameTrimmed = data.categoryName.trim();
@@ -124,6 +141,26 @@ export async function updateExpense(user, id, data) {
     }
   }
   if (data.expenseType) assertTypeAllowed(scope, data.expenseType);
+
+  // If amount is updated, validate it does not exceed net collection
+  if (data.amount !== undefined && Number(data.amount) !== Number(existing.amount)) {
+    const academicYearId = existing.academic_year_id;
+    const [[{ totalCollection }]] = await pool.query(
+      "SELECT COALESCE(SUM(amount), 0) AS totalCollection FROM payments WHERE status = 'COMPLETED' AND academic_year_id = ?",
+      [academicYearId]
+    );
+    const [[{ totalExpenses }]] = await pool.query(
+      "SELECT COALESCE(SUM(amount), 0) AS totalExpenses FROM expenses WHERE status = 'ACTIVE' AND academic_year_id = ?",
+      [academicYearId]
+    );
+    const availableBalance = Number(totalCollection) - (Number(totalExpenses) - Number(existing.amount));
+    if (Number(data.amount) > availableBalance) {
+      throw ApiError.badRequest(
+        `Updated expense amount (₹${data.amount}) exceeds the remaining available net collection (₹${availableBalance})`,
+        'EXPENSE_EXCEEDS_COLLECTION'
+      );
+    }
+  }
 
   const fields = [];
   const params = [];

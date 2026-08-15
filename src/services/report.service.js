@@ -9,27 +9,21 @@ function scopeClause(scope, alias = '') {
   return scope ? { sql: `AND ${col} = ?`, param: scope } : { sql: '', param: null };
 }
 
+function getEffectiveScope(userRole, filterType) {
+  const scope = scopeForRole(userRole);
+  if (scope) return scope; // Staff is always restricted to their scope
+  if (filterType === 'SCHOOL' || filterType === 'TUITION') return filterType; // Admin filter
+  return null; // All
+}
+
 export async function getDashboardSummary(user, academicYearId) {
   const scope = scopeForRole(user.role);
   const sc = scopeClause(scope);
 
-  const [[todayRow]] = await pool.query(
-    `SELECT
-       COALESCE(SUM(amount),0) AS today_collection,
-       COALESCE(SUM(CASE WHEN payment_method='CASH' THEN amount ELSE 0 END),0) AS cash_collection,
-       COALESCE(SUM(CASE WHEN payment_method='UPI' THEN amount ELSE 0 END),0) AS upi_collection,
-       COALESCE(SUM(CASE WHEN student_type='SCHOOL' THEN amount ELSE 0 END),0) AS school_collection,
-       COALESCE(SUM(CASE WHEN student_type='TUITION' THEN amount ELSE 0 END),0) AS tuition_collection,
-       COUNT(*) AS today_transaction_count
+  const [[collectionRow]] = await pool.query(
+    `SELECT COALESCE(SUM(amount), 0) AS today_collection, COUNT(*) AS today_count
      FROM payments WHERE status='COMPLETED' AND payment_date = CURDATE() ${sc.sql} AND academic_year_id = ?`,
     sc.param ? [sc.param, academicYearId] : [academicYearId]
-  );
-
-  const [[expenseRow]] = await pool.query(
-    `SELECT COALESCE(SUM(amount),0) AS today_expenses
-     FROM expenses WHERE status='ACTIVE' AND expense_date = CURDATE()
-     ${scope ? 'AND expense_type = ?' : ''} AND academic_year_id = ?`,
-    scope ? [scope, academicYearId] : [academicYearId]
   );
 
   const [[dueRow]] = await pool.query(
@@ -41,55 +35,88 @@ export async function getDashboardSummary(user, academicYearId) {
     scope ? [scope, academicYearId] : [academicYearId]
   );
 
-  const [recentPayments] = await pool.query(
-    `SELECT p.receipt_number, s.name AS student_name, p.student_type, p.amount,
-            p.payment_method, u.full_name AS accountant_name, p.payment_time
-     FROM payments p JOIN students s ON s.id=p.student_id JOIN users u ON u.id=p.received_by
-     WHERE p.status='COMPLETED' ${scope ? 'AND p.student_type = ?' : ''} AND p.academic_year_id = ?
-     ORDER BY p.payment_time DESC LIMIT 8`,
+  const [[expenseRow]] = await pool.query(
+    `SELECT COALESCE(SUM(amount), 0) AS today_expenses
+     FROM expenses WHERE status='ACTIVE' AND expense_date = CURDATE() ${scope ? 'AND expense_type = ?' : ''} AND academic_year_id = ?`,
     scope ? [scope, academicYearId] : [academicYearId]
   );
 
-  const [recentExpenses] = await pool.query(
-    `SELECT e.amount, c.name AS category_name, e.expense_type, e.expense_date, u.full_name AS created_by_name
-     FROM expenses e JOIN expense_categories c ON c.id=e.category_id JOIN users u ON u.id=e.created_by
-     WHERE e.status='ACTIVE' ${scope ? 'AND e.expense_type = ?' : ''} AND e.academic_year_id = ?
-     ORDER BY e.created_at DESC LIMIT 8`,
-    scope ? [scope, academicYearId] : [academicYearId]
+  const [[schoolRow]] = await pool.query(
+    `SELECT COALESCE(SUM(amount), 0) AS school_collection
+     FROM payments WHERE status='COMPLETED' AND payment_date = CURDATE() AND student_type='SCHOOL' AND academic_year_id = ?`,
+    [academicYearId]
   );
 
-  const [monthlyChart] = await pool.query(
-    `SELECT DATE_FORMAT(payment_date,'%Y-%m') AS month,
-            SUM(CASE WHEN student_type='SCHOOL' THEN amount ELSE 0 END) AS school,
-            SUM(CASE WHEN student_type='TUITION' THEN amount ELSE 0 END) AS tuition,
-            SUM(amount) AS total
-     FROM payments
-     WHERE status='COMPLETED' AND payment_date >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH) ${sc.sql} AND academic_year_id = ?
-     GROUP BY month ORDER BY month`,
+  const [[tuitionRow]] = await pool.query(
+    `SELECT COALESCE(SUM(amount), 0) AS tuition_collection
+     FROM payments WHERE status='COMPLETED' AND payment_date = CURDATE() AND student_type='TUITION' AND academic_year_id = ?`,
+    [academicYearId]
+  );
+
+  const [[cashRow]] = await pool.query(
+    `SELECT COALESCE(SUM(amount), 0) AS cash_collection
+     FROM payments WHERE status='COMPLETED' AND payment_date = CURDATE() AND payment_method='CASH' ${sc.sql} AND academic_year_id = ?`,
     sc.param ? [sc.param, academicYearId] : [academicYearId]
   );
 
-  const isAccountant = user.role !== 'ADMIN';
+  const [[upiRow]] = await pool.query(
+    `SELECT COALESCE(SUM(amount), 0) AS upi_collection
+     FROM payments WHERE status='COMPLETED' AND payment_date = CURDATE() AND payment_method='UPI' ${sc.sql} AND academic_year_id = ?`,
+    sc.param ? [sc.param, academicYearId] : [academicYearId]
+  );
+
+  const [recentPayments] = await pool.query(
+    `SELECT p.receipt_number, s.name AS student_name, p.amount, p.payment_method, p.payment_time, u.full_name AS accountant_name
+     FROM payments p
+     JOIN students s ON s.id = p.student_id
+     JOIN users u ON u.id = p.received_by
+     WHERE p.status='COMPLETED' ${sc.sql} AND p.academic_year_id = ?
+     ORDER BY p.payment_time DESC LIMIT 5`,
+    sc.param ? [sc.param, academicYearId] : [academicYearId]
+  );
+
+  const [recentExpenses] = await pool.query(
+    `SELECT e.amount, e.expense_type, c.name AS category_name, u.full_name AS created_by_name
+     FROM expenses e
+     JOIN expense_categories c ON c.id = e.category_id
+     JOIN users u ON u.id = e.created_by
+     WHERE e.status='ACTIVE' ${scope ? 'AND e.expense_type = ?' : ''} AND e.academic_year_id = ?
+     ORDER BY e.expense_date DESC, e.id DESC LIMIT 5`,
+    scope ? [scope, academicYearId] : [academicYearId]
+  );
+
+  const [chartRows] = await pool.query(
+    `SELECT DATE_FORMAT(payment_date, '%b %y') AS month_label,
+            SUM(CASE WHEN student_type='SCHOOL' THEN amount ELSE 0 END) AS school,
+            SUM(CASE WHEN student_type='TUITION' THEN amount ELSE 0 END) AS tuition,
+            SUM(amount) AS total,
+            MIN(payment_date) AS sort_date
+     FROM payments
+     WHERE status='COMPLETED' ${sc.sql} AND academic_year_id = ?
+     GROUP BY DATE_FORMAT(payment_date, '%b %y')
+     ORDER BY sort_date ASC`,
+    sc.param ? [sc.param, academicYearId] : [academicYearId]
+  );
 
   return {
-    todayCollection: Number(todayRow.today_collection),
-    todayExpenses: isAccountant ? 0 : Number(expenseRow.today_expenses),
-    todayNetCollection: isAccountant ? Number(todayRow.today_collection) : Number(todayRow.today_collection) - Number(expenseRow.today_expenses),
+    todayCollection: Number(collectionRow.today_collection),
+    todayTransactionCount: Number(collectionRow.today_count),
+    todayExpenses: Number(expenseRow.today_expenses),
+    todayNetCollection: Number(collectionRow.today_collection) - Number(expenseRow.today_expenses),
     totalOutstandingDue: Number(dueRow.total_outstanding_due),
-    schoolCollection: scope === 'TUITION' ? 0 : Number(todayRow.school_collection),
-    tuitionCollection: scope === 'SCHOOL' ? 0 : Number(todayRow.tuition_collection),
-    cashCollection: Number(todayRow.cash_collection),
-    upiCollection: Number(todayRow.upi_collection),
-    todayTransactionCount: Number(todayRow.today_transaction_count),
+    schoolCollection: Number(schoolRow.school_collection),
+    tuitionCollection: Number(tuitionRow.tuition_collection),
+    cashCollection: Number(cashRow.cash_collection),
+    upiCollection: Number(upiRow.upi_collection),
+    recentPayments,
+    recentExpenses,
     studentSummary: {
       totalStudents: Number(dueRow.total_students),
       studentsWithDue: Number(dueRow.students_with_due),
       studentsFullyPaid: Number(dueRow.students_fully_paid),
     },
-    recentPayments,
-    recentExpenses: isAccountant ? [] : recentExpenses,
-    monthlyChart: monthlyChart.map(m => ({
-      month: m.month,
+    monthlyChart: chartRows.map((m) => ({
+      month: m.month_label,
       school: scope === 'TUITION' ? 0 : Number(m.school),
       tuition: scope === 'SCHOOL' ? 0 : Number(m.tuition),
       total: scope === 'SCHOOL' ? Number(m.school) : (scope === 'TUITION' ? Number(m.tuition) : Number(m.total))
@@ -97,10 +124,10 @@ export async function getDashboardSummary(user, academicYearId) {
   };
 }
 
-export async function getDailyReport(user, date, academicYearId) {
-  const scope = scopeForRole(user.role);
+export async function getDailyReport(user, date, academicYearId, studentType = null) {
+  const effectiveScope = getEffectiveScope(user.role, studentType);
   const targetDate = date || new Date().toISOString().slice(0, 10);
-  const sc = scopeClause(scope, 'p');
+  const sc = scopeClause(effectiveScope, 'p');
 
   const [[summary]] = await pool.query(
     `SELECT COUNT(*) AS transaction_count, COALESCE(SUM(amount),0) AS total_collection,
@@ -113,8 +140,20 @@ export async function getDailyReport(user, date, academicYearId) {
   );
 
   const [accountantBreakdown] = await pool.query(
-    `SELECT * FROM v_accountant_daily_summary WHERE payment_date = ? AND academic_year_id = ? ${scope ? 'AND received_by IN (SELECT id FROM users WHERE role = ?)' : ''}`,
-    scope ? [targetDate, academicYearId, scope === 'SCHOOL' ? 'SCHOOL_ACCOUNTANT' : 'TUITION_ACCOUNTANT'] : [targetDate, academicYearId]
+    `SELECT
+       p.payment_date,
+       p.received_by,
+       u.full_name AS accountant_name,
+       u.role AS accountant_role,
+       COUNT(*) AS transaction_count,
+       SUM(CASE WHEN p.payment_method = 'CASH' THEN p.amount ELSE 0 END) AS cash_total,
+       SUM(CASE WHEN p.payment_method = 'UPI'  THEN p.amount ELSE 0 END) AS upi_total,
+       SUM(p.amount) AS overall_total
+     FROM payments p
+     JOIN users u ON u.id = p.received_by
+     WHERE p.status = 'COMPLETED' AND p.payment_date = ? ${sc.sql} AND p.academic_year_id = ?
+     GROUP BY p.payment_date, p.received_by, u.full_name, u.role`,
+    sc.param ? [targetDate, sc.param, academicYearId] : [targetDate, academicYearId]
   );
 
   const [transactions] = await pool.query(
@@ -128,8 +167,19 @@ export async function getDailyReport(user, date, academicYearId) {
 
   const [[expenseSummary]] = await pool.query(
     `SELECT COALESCE(SUM(amount),0) AS total_expenses FROM expenses
-     WHERE status='ACTIVE' AND expense_date = ? ${scope ? 'AND expense_type = ?' : ''} AND academic_year_id = ?`,
-    scope ? [targetDate, scope, academicYearId] : [targetDate, academicYearId]
+     WHERE status='ACTIVE' AND expense_date = ? ${effectiveScope ? 'AND (expense_type = ? OR expense_type = \'BOTH\')' : ''} AND academic_year_id = ?`,
+    effectiveScope ? [targetDate, effectiveScope, academicYearId] : [targetDate, academicYearId]
+  );
+
+  const [expenseList] = await pool.query(
+    `SELECT e.id, e.amount, e.expense_type, e.payment_method, e.expense_date, e.description,
+            c.name AS category_name, u.full_name AS created_by_name
+     FROM expenses e
+     JOIN expense_categories c ON c.id = e.category_id
+     JOIN users u ON u.id = e.created_by
+     WHERE e.status='ACTIVE' AND e.expense_date = ? ${effectiveScope ? 'AND (e.expense_type = ? OR e.expense_type = \'BOTH\')' : ''} AND e.academic_year_id = ?
+     ORDER BY e.id DESC`,
+    effectiveScope ? [targetDate, effectiveScope, academicYearId] : [targetDate, academicYearId]
   );
 
   return {
@@ -137,14 +187,15 @@ export async function getDailyReport(user, date, academicYearId) {
     summary,
     accountantBreakdown,
     transactions,
-    expenses: expenseSummary.total_expenses,
-    netCollection: summary.total_collection - expenseSummary.total_expenses,
+    expenses: Number(expenseSummary.total_expenses),
+    expensesList: expenseList,
+    netCollection: Number(summary.total_collection) - Number(expenseSummary.total_expenses),
   };
 }
 
-export async function getMonthlyReport(user, year, month, academicYearId) {
-  const scope = scopeForRole(user.role);
-  const sc = scopeClause(scope);
+export async function getMonthlyReport(user, year, month, academicYearId, studentType = null) {
+  const effectiveScope = getEffectiveScope(user.role, studentType);
+  const sc = scopeClause(effectiveScope);
 
   const [[collection]] = await pool.query(
     `SELECT COUNT(*) AS transaction_count, COALESCE(SUM(amount),0) AS total_collection,
@@ -160,8 +211,8 @@ export async function getMonthlyReport(user, year, month, academicYearId) {
     `SELECT COALESCE(SUM(amount),0) AS total_expenses,
             COALESCE(SUM(CASE WHEN expense_type='SCHOOL' THEN amount ELSE 0 END),0) AS school_expenses,
             COALESCE(SUM(CASE WHEN expense_type='TUITION' THEN amount ELSE 0 END),0) AS tuition_expenses
-     FROM expenses WHERE status='ACTIVE' AND YEAR(expense_date)=? AND MONTH(expense_date)=? ${scope ? 'AND expense_type = ?' : ''} AND academic_year_id = ?`,
-    scope ? [year, month, scope, academicYearId] : [year, month, academicYearId]
+     FROM expenses WHERE status='ACTIVE' AND YEAR(expense_date)=? AND MONTH(expense_date)=? ${effectiveScope ? 'AND (expense_type = ? OR expense_type = \'BOTH\')' : ''} AND academic_year_id = ?`,
+    effectiveScope ? [year, month, effectiveScope, academicYearId] : [year, month, academicYearId]
   );
 
   const [dailyChart] = await pool.query(
@@ -181,23 +232,35 @@ export async function getMonthlyReport(user, year, month, academicYearId) {
     `SELECT COUNT(*) AS total_students,
             SUM(CASE WHEN due_amount > 0 THEN 1 ELSE 0 END) AS students_with_due,
             SUM(CASE WHEN due_amount <= 0 THEN 1 ELSE 0 END) AS students_fully_paid
-     FROM v_student_dues WHERE status='ACTIVE' ${scope ? 'AND student_type = ?' : ''} AND academic_year_id = ?`,
-    scope ? [scope, academicYearId] : [academicYearId]
+     FROM v_student_dues WHERE status='ACTIVE' ${effectiveScope ? 'AND student_type = ?' : ''} AND academic_year_id = ?`,
+    effectiveScope ? [effectiveScope, academicYearId] : [academicYearId]
+  );
+
+  const [expenseList] = await pool.query(
+    `SELECT e.id, e.amount, e.expense_type, e.payment_method, e.expense_date, e.description,
+            c.name AS category_name, u.full_name AS created_by_name
+     FROM expenses e
+     JOIN expense_categories c ON c.id = e.category_id
+     JOIN users u ON u.id = e.created_by
+     WHERE e.status='ACTIVE' AND YEAR(e.expense_date)=? AND MONTH(e.expense_date)=? ${effectiveScope ? 'AND (e.expense_type = ? OR e.expense_type = \'BOTH\')' : ''} AND e.academic_year_id = ?
+     ORDER BY e.expense_date DESC, e.id DESC`,
+    effectiveScope ? [year, month, effectiveScope, academicYearId] : [year, month, academicYearId]
   );
 
   return {
     year, month,
     collection,
     expenses,
-    netAmount: collection.total_collection - expenses.total_expenses,
+    expensesList: expenseList,
+    netAmount: Number(collection.total_collection) - Number(expenses.total_expenses),
     dailyChart,
     studentSummary,
   };
 }
 
-export async function getDateRangeReport(user, fromDate, toDate, academicYearId) {
-  const scope = scopeForRole(user.role);
-  const sc = scopeClause(scope);
+export async function getDateRangeReport(user, fromDate, toDate, academicYearId, studentType = null) {
+  const effectiveScope = getEffectiveScope(user.role, studentType);
+  const sc = scopeClause(effectiveScope);
 
   const [[collection]] = await pool.query(
     `SELECT COUNT(*) AS transaction_count, COALESCE(SUM(amount),0) AS total_collection,
@@ -211,8 +274,8 @@ export async function getDateRangeReport(user, fromDate, toDate, academicYearId)
 
   const [[expenses]] = await pool.query(
     `SELECT COALESCE(SUM(amount),0) AS total_expenses
-     FROM expenses WHERE status='ACTIVE' AND expense_date BETWEEN ? AND ? ${scope ? 'AND expense_type = ?' : ''} AND academic_year_id = ?`,
-    scope ? [fromDate, toDate, scope, academicYearId] : [fromDate, toDate, academicYearId]
+     FROM expenses WHERE status='ACTIVE' AND expense_date BETWEEN ? AND ? ${effectiveScope ? 'AND (expense_type = ? OR expense_type = \'BOTH\')' : ''} AND academic_year_id = ?`,
+    effectiveScope ? [fromDate, toDate, effectiveScope, academicYearId] : [fromDate, toDate, academicYearId]
   );
 
   const [dailyBreakdown] = await pool.query(
@@ -224,11 +287,23 @@ export async function getDateRangeReport(user, fromDate, toDate, academicYearId)
     sc.param ? [fromDate, toDate, sc.param, academicYearId] : [fromDate, toDate, academicYearId]
   );
 
+  const [expenseList] = await pool.query(
+    `SELECT e.id, e.amount, e.expense_type, e.payment_method, e.expense_date, e.description,
+            c.name AS category_name, u.full_name AS created_by_name
+     FROM expenses e
+     JOIN expense_categories c ON c.id = e.category_id
+     JOIN users u ON u.id = e.created_by
+     WHERE e.status='ACTIVE' AND e.expense_date BETWEEN ? AND ? ${effectiveScope ? 'AND (e.expense_type = ? OR e.expense_type = \'BOTH\')' : ''} AND e.academic_year_id = ?
+     ORDER BY e.expense_date DESC, e.id DESC`,
+    effectiveScope ? [fromDate, toDate, effectiveScope, academicYearId] : [fromDate, toDate, academicYearId]
+  );
+
   return {
     fromDate, toDate,
     collection,
-    expenses: expenses.total_expenses,
-    netAmount: collection.total_collection - expenses.total_expenses,
+    expenses: Number(expenses.total_expenses),
+    expensesList: expenseList,
+    netAmount: Number(collection.total_collection) - Number(expenses.total_expenses),
     dailyBreakdown,
   };
 }
