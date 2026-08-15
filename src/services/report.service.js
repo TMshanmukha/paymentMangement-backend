@@ -83,6 +83,30 @@ export async function getDashboardSummary(user, academicYearId) {
     sc.param ? [sc.param, academicYearId] : [academicYearId]
   );
 
+  const [[schoolCashRow]] = await pool.query(
+    `SELECT COALESCE(SUM(amount), 0) AS cash_collection
+     FROM payments WHERE status='COMPLETED' AND payment_date = CURDATE() AND student_type='SCHOOL' AND payment_method='CASH' AND academic_year_id = ?`,
+    [academicYearId]
+  );
+
+  const [[schoolUpiRow]] = await pool.query(
+    `SELECT COALESCE(SUM(amount), 0) AS upi_collection
+     FROM payments WHERE status='COMPLETED' AND payment_date = CURDATE() AND student_type='SCHOOL' AND payment_method='UPI' AND academic_year_id = ?`,
+    [academicYearId]
+  );
+
+  const [[tuitionCashRow]] = await pool.query(
+    `SELECT COALESCE(SUM(amount), 0) AS cash_collection
+     FROM payments WHERE status='COMPLETED' AND payment_date = CURDATE() AND student_type='TUITION' AND payment_method='CASH' AND academic_year_id = ?`,
+    [academicYearId]
+  );
+
+  const [[tuitionUpiRow]] = await pool.query(
+    `SELECT COALESCE(SUM(amount), 0) AS upi_collection
+     FROM payments WHERE status='COMPLETED' AND payment_date = CURDATE() AND student_type='TUITION' AND payment_method='UPI' AND academic_year_id = ?`,
+    [academicYearId]
+  );
+
   const [recentPayments] = await pool.query(
     `SELECT p.receipt_number, s.name AS student_name, p.amount, p.payment_method, p.payment_time, u.full_name AS accountant_name
      FROM payments p
@@ -134,12 +158,18 @@ export async function getDashboardSummary(user, academicYearId) {
       studentsFullyPaid: Number(dueRow.students_fully_paid),
     },
     schoolSummary: {
+      todayCollection: Number(schoolRow.school_collection),
+      cashCollection: Number(schoolCashRow.cash_collection),
+      upiCollection: Number(schoolUpiRow.upi_collection),
       totalOutstandingDue: Number(schoolDueRow.total_outstanding_due),
       totalStudents: Number(schoolDueRow.total_students),
       studentsWithDue: Number(schoolDueRow.students_with_due),
       studentsFullyPaid: Number(schoolDueRow.students_fully_paid),
     },
     tuitionSummary: {
+      todayCollection: Number(tuitionRow.tuition_collection),
+      cashCollection: Number(tuitionCashRow.cash_collection),
+      upiCollection: Number(tuitionUpiRow.upi_collection),
       totalOutstandingDue: Number(tuitionDueRow.total_outstanding_due),
       totalStudents: Number(tuitionDueRow.total_students),
       studentsWithDue: Number(tuitionDueRow.students_with_due),
