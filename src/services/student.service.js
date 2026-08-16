@@ -62,7 +62,7 @@ export async function listStudents(user, query) {
 
   const [rows] = await pool.query(
     `SELECT d.* FROM v_student_dues d ${whereSql.replace(/student_id/g, 'd.student_id')}
-     ORDER BY d.student_id DESC LIMIT ? OFFSET ?`,
+     ORDER BY d.student_id ASC LIMIT ? OFFSET ?`,
     [...params, pageSize, offset]
   );
 
