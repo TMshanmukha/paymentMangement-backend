@@ -7,7 +7,7 @@ import { writeAudit } from '../utils/audit.js';
 /** Verifies credentials, updates last_login_at, returns tokens + safe user object. */
 export async function login({ username, password }, ip) {
   const [rows] = await pool.query(
-    `SELECT id, username, password_hash, full_name, role, status
+    `SELECT id, username, password_hash, full_name, role, status, created_by
      FROM users WHERE username = ? OR email = ? LIMIT 1`,
     [username, username]
   );
@@ -46,6 +46,7 @@ export async function login({ username, password }, ip) {
       username: user.username,
       fullName: user.full_name,
       role: user.role,
+      createdBy: user.created_by,
     },
   };
 }
@@ -80,10 +81,20 @@ export async function logout(userId, ip) {
 
 export async function getCurrentUser(userId) {
   const [rows] = await pool.query(
-    'SELECT id, username, email, full_name, phone, role, status, last_login_at FROM users WHERE id = ? LIMIT 1',
+    'SELECT id, username, email, full_name, phone, role, status, created_by, last_login_at FROM users WHERE id = ? LIMIT 1',
     [userId]
   );
   const user = rows[0];
   if (!user) throw ApiError.notFound('User not found');
-  return user;
+  return {
+    id: user.id,
+    username: user.username,
+    email: user.email,
+    fullName: user.full_name,
+    phone: user.phone,
+    role: user.role,
+    status: user.status,
+    createdBy: user.created_by,
+    lastLoginAt: user.last_login_at,
+  };
 }

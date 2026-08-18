@@ -8,7 +8,7 @@ export const list = asyncHandler(async (req, res) => {
 });
 
 export const listClasses = asyncHandler(async (req, res) => {
-  const result = await studentService.listClasses(req.user, req.academicYearId, req.query.studentType);
+  const result = await studentService.listClasses(req.user, req.academicYearId, req.query.studentType, req.query.admissionType);
   res.json({ success: true, data: result });
 });
 

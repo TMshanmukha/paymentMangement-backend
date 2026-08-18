@@ -53,6 +53,10 @@ export async function createPayment(user, data) {
     throw ApiError.conflict('This payment was already submitted. Refresh to check before retrying.', 'DUPLICATE_SUBMISSION');
   }
 
+  if (user.role === 'ADMIN' && !data.digitalSignature) {
+    throw ApiError.badRequest('Digital signature is required for admin payments', 'SIGNATURE_REQUIRED');
+  }
+
   const scope = scopeForRole(user.role);
 
   return withTransaction(async (conn) => {
@@ -91,8 +95,8 @@ export async function createPayment(user, data) {
     const [result] = await conn.query(
       `INSERT INTO payments
          (receipt_number, student_id, academic_year_id, student_type, amount, payment_method,
-          payment_date, payment_time, remarks, received_by, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED')`,
+          payment_date, payment_time, remarks, received_by, status, digital_signature)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', ?)`,
       [
         tempReceipt,
         data.studentId,
@@ -104,6 +108,7 @@ export async function createPayment(user, data) {
         indiaDateTime,
         data.remarks || null,
         user.id,
+        user.role === 'ADMIN' ? (data.digitalSignature || null) : null,
       ]
     );
 

@@ -5,15 +5,30 @@ import { writeAudit } from '../utils/audit.js';
 
 const SALT_ROUNDS = 10;
 
-export async function listUsers() {
-  const [rows] = await pool.query(
-    `SELECT id, username, email, full_name, phone, role, status, last_login_at, created_at
-     FROM users WHERE role != 'ADMIN' ORDER BY created_at DESC`
-  );
-  return rows;
+export async function listUsers(currentUser) {
+  const isPrimaryAdmin = currentUser.createdBy === null || currentUser.createdBy === undefined;
+  if (isPrimaryAdmin) {
+    const [rows] = await pool.query(
+      `SELECT id, username, email, full_name, phone, role, status, created_by, last_login_at, created_at
+       FROM users WHERE id != ? ORDER BY created_at DESC`,
+      [currentUser.id]
+    );
+    return rows;
+  } else {
+    const [rows] = await pool.query(
+      `SELECT id, username, email, full_name, phone, role, status, created_by, last_login_at, created_at
+       FROM users WHERE role != 'ADMIN' ORDER BY created_at DESC`
+    );
+    return rows;
+  }
 }
 
 export async function createUser(admin, data) {
+  const isCoAdmin = admin.createdBy !== null && admin.createdBy !== undefined;
+  if (data.role === 'ADMIN' && isCoAdmin) {
+    throw ApiError.forbidden('Co-Admins are not allowed to create other admins', 'ROLE_NOT_ALLOWED');
+  }
+
   const [dupe] = await pool.query('SELECT id FROM users WHERE username = ?', [data.username]);
   if (dupe.length) throw ApiError.conflict('Username already exists', 'USERNAME_TAKEN');
 
@@ -32,13 +47,19 @@ export async function createUser(admin, data) {
     description: `${data.fullName} added as ${data.role}`,
   });
 
-  const [rows] = await pool.query('SELECT id, username, email, full_name, phone, role, status FROM users WHERE id=?', [result.insertId]);
+  const [rows] = await pool.query('SELECT id, username, email, full_name, phone, role, status, created_by FROM users WHERE id=?', [result.insertId]);
   return rows[0];
 }
 
 export async function updateUser(admin, id, data) {
-  const [existingRows] = await pool.query('SELECT * FROM users WHERE id = ? AND role != "ADMIN"', [id]);
-  if (!existingRows[0]) throw ApiError.notFound('User not found', 'USER_NOT_FOUND');
+  const isCoAdmin = admin.createdBy !== null && admin.createdBy !== undefined;
+  const queryStr = isCoAdmin 
+    ? 'SELECT * FROM users WHERE id = ? AND role != "ADMIN"'
+    : 'SELECT * FROM users WHERE id = ? AND id != ?';
+  const queryParams = isCoAdmin ? [id] : [id, admin.id];
+
+  const [existingRows] = await pool.query(queryStr, queryParams);
+  if (!existingRows[0]) throw ApiError.notFound('User not found or cannot be modified', 'USER_NOT_FOUND');
 
   const fields = [];
   const params = [];
@@ -51,13 +72,19 @@ export async function updateUser(admin, id, data) {
     await pool.query(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`, params);
   }
 
-  const [rows] = await pool.query('SELECT id, username, email, full_name, phone, role, status FROM users WHERE id=?', [id]);
+  const [rows] = await pool.query('SELECT id, username, email, full_name, phone, role, status, created_by FROM users WHERE id=?', [id]);
   return rows[0];
 }
 
 export async function updateUserStatus(admin, id, status) {
-  const [existingRows] = await pool.query('SELECT * FROM users WHERE id = ? AND role != "ADMIN"', [id]);
-  if (!existingRows[0]) throw ApiError.notFound('User not found', 'USER_NOT_FOUND');
+  const isCoAdmin = admin.createdBy !== null && admin.createdBy !== undefined;
+  const queryStr = isCoAdmin 
+    ? 'SELECT * FROM users WHERE id = ? AND role != "ADMIN"'
+    : 'SELECT * FROM users WHERE id = ? AND id != ?';
+  const queryParams = isCoAdmin ? [id] : [id, admin.id];
+
+  const [existingRows] = await pool.query(queryStr, queryParams);
+  if (!existingRows[0]) throw ApiError.notFound('User not found or cannot be modified', 'USER_NOT_FOUND');
 
   await pool.query('UPDATE users SET status = ? WHERE id = ?', [status, id]);
   await writeAudit({
@@ -68,13 +95,19 @@ export async function updateUserStatus(admin, id, status) {
     description: `User #${id} set to ${status}`,
   });
 
-  const [rows] = await pool.query('SELECT id, username, email, full_name, phone, role, status FROM users WHERE id=?', [id]);
+  const [rows] = await pool.query('SELECT id, username, email, full_name, phone, role, status, created_by FROM users WHERE id=?', [id]);
   return rows[0];
 }
 
 export async function resetPassword(admin, id, newPassword) {
-  const [existingRows] = await pool.query('SELECT * FROM users WHERE id = ? AND role != "ADMIN"', [id]);
-  if (!existingRows[0]) throw ApiError.notFound('User not found', 'USER_NOT_FOUND');
+  const isCoAdmin = admin.createdBy !== null && admin.createdBy !== undefined;
+  const queryStr = isCoAdmin 
+    ? 'SELECT * FROM users WHERE id = ? AND role != "ADMIN"'
+    : 'SELECT * FROM users WHERE id = ? AND id != ?';
+  const queryParams = isCoAdmin ? [id] : [id, admin.id];
+
+  const [existingRows] = await pool.query(queryStr, queryParams);
+  if (!existingRows[0]) throw ApiError.notFound('User not found or cannot be modified', 'USER_NOT_FOUND');
 
   const passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
   await pool.query('UPDATE users SET password_hash = ? WHERE id = ?', [passwordHash, id]);

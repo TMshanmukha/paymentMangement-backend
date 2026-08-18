@@ -18,7 +18,7 @@ function assertTypeAllowed(scope, studentType) {
 
 export async function listStudents(user, query) {
   const scope = scopeForRole(user.role);
-  const { studentType, status, academicYearId, search, dueOnly, page, pageSize } = query;
+  const { studentType, admissionType, status, academicYearId, search, dueOnly, page, pageSize } = query;
   const className = query.class;
 
   const where = [];
@@ -30,6 +30,11 @@ export async function listStudents(user, query) {
   } else if (studentType) {
     where.push('student_type = ?');
     params.push(studentType);
+  }
+
+  if (admissionType) {
+    where.push('admission_type = ?');
+    params.push(admissionType);
   }
 
   if (status) {
@@ -105,8 +110,8 @@ export async function createStudent(user, data) {
     const [result] = await conn.query(
       `INSERT INTO students
          (student_code, name, parent_name, parent_phone, student_phone, class, section,
-          student_type, academic_year_id, total_fee, joining_date, address, status, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          student_type, admission_type, academic_year_id, total_fee, joining_date, address, status, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         tempCode,
         data.name,
@@ -116,6 +121,7 @@ export async function createStudent(user, data) {
         data.class || null,
         data.section || null,
         data.studentType,
+        data.admissionType || 'REGULAR',
         data.academicYearId,
         data.totalFee,
         data.joiningDate,
@@ -162,6 +168,7 @@ export async function updateStudent(user, id, data) {
     class: 'class',
     section: 'section',
     studentType: 'student_type',
+    admissionType: 'admission_type',
     academicYearId: 'academic_year_id',
     totalFee: 'total_fee',
     joiningDate: 'joining_date',
@@ -203,7 +210,7 @@ export async function updateStudentStatus(user, id, status) {
   return getStudentById(user, id);
 }
 
-export async function listClasses(user, academicYearId, studentType = null) {
+export async function listClasses(user, academicYearId, studentType = null, admissionType = null) {
   const scope = scopeForRole(user.role);
   const params = [];
   let sql = `
@@ -222,6 +229,10 @@ export async function listClasses(user, academicYearId, studentType = null) {
   } else if (studentType) {
     conditions.push('student_type = ?');
     params.push(studentType);
+  }
+  if (admissionType) {
+    conditions.push('admission_type = ?');
+    params.push(admissionType);
   }
   if (academicYearId) {
     conditions.push('academic_year_id = ?');

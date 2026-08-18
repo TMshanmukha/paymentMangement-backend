@@ -7,6 +7,7 @@ export const createPaymentSchema = z.object({
   paymentDate: z.string().min(1, 'Payment date is required'),
   remarks: z.string().max(255).optional().or(z.literal('')),
   clientRequestId: z.string().optional(),
+  digitalSignature: z.string().optional().or(z.literal('')),
 });
 
 export const cancelPaymentSchema = z.object({

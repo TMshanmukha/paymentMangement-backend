@@ -21,7 +21,7 @@ export async function authenticate(req, res, next) {
     }
 
     const [rows] = await pool.query(
-      'SELECT id, username, full_name, role, status FROM users WHERE id = ? LIMIT 1',
+      'SELECT id, username, full_name, role, status, created_by FROM users WHERE id = ? LIMIT 1',
       [payload.sub]
     );
     const user = rows[0];
@@ -33,6 +33,7 @@ export async function authenticate(req, res, next) {
       username: user.username,
       fullName: user.full_name,
       role: user.role,
+      createdBy: user.created_by,
     };
     next();
   } catch (err) {

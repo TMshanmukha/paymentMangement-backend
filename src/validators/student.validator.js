@@ -10,6 +10,7 @@ export const createStudentSchema = z.object({
   class: z.string().optional().or(z.literal('')),
   section: z.string().optional().or(z.literal('')),
   studentType: z.enum(['SCHOOL', 'TUITION']),
+  admissionType: z.enum(['REGULAR', 'SCHOLARSHIP']).optional().default('REGULAR'),
   academicYearId: z.coerce.number().int().positive('Academic year is required').optional(),
   totalFee: z.coerce.number().min(0, 'Total fee cannot be negative'),
   joiningDate: z.string().min(1, 'Joining date is required'),
@@ -25,6 +26,7 @@ export const updateStudentStatusSchema = z.object({
 
 export const listStudentsQuerySchema = z.object({
   studentType: z.enum(['SCHOOL', 'TUITION']).optional(),
+  admissionType: z.enum(['REGULAR', 'SCHOLARSHIP']).optional(),
   status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
   academicYearId: z.coerce.number().int().positive().optional(),
   search: z.string().optional(),

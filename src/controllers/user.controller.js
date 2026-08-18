@@ -2,7 +2,7 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 import * as userService from '../services/user.service.js';
 
 export const list = asyncHandler(async (req, res) => {
-  const data = await userService.listUsers();
+  const data = await userService.listUsers(req.user);
   res.json({ success: true, data });
 });
 
