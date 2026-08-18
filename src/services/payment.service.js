@@ -130,14 +130,24 @@ export async function createPayment(user, data) {
     });
 
     const [paymentRows] = await conn.query(
-      `SELECT p.*, s.name AS student_name, s.parent_name, s.student_code, u.full_name AS received_by_name
+      `SELECT p.*, s.name AS student_name, s.parent_name, s.student_code, s.class, s.section,
+              s.total_fee, u.full_name AS received_by_name
        FROM payments p
        JOIN students s ON s.id = p.student_id
        JOIN users u ON u.id = p.received_by
        WHERE p.id = ?`,
       [result.insertId]
     );
-    return paymentRows[0];
+    const payment = paymentRows[0];
+    const [sumRows] = await conn.query(
+      "SELECT COALESCE(SUM(amount),0) AS paid FROM payments WHERE student_id = ? AND status = 'COMPLETED'",
+      [payment.student_id]
+    );
+    const totalPaid = Number(sumRows[0].paid);
+    payment.total_paid_to_date = totalPaid;
+    payment.previous_paid = payment.status === 'COMPLETED' ? totalPaid - Number(payment.amount) : null;
+    payment.remaining_due = Number(payment.total_fee) - totalPaid;
+    return payment;
   });
 }
 
