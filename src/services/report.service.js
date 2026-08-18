@@ -108,6 +108,28 @@ export async function getDashboardSummary(user, academicYearId) {
     [academicYearId]
   );
 
+  const [[schoolOverallCollRow]] = await pool.query(
+    `SELECT COALESCE(SUM(amount), 0) AS overall_collection
+     FROM payments WHERE status='COMPLETED' AND student_type='SCHOOL' AND academic_year_id = ?`,
+    [academicYearId]
+  );
+  const [[tuitionOverallCollRow]] = await pool.query(
+    `SELECT COALESCE(SUM(amount), 0) AS overall_collection
+     FROM payments WHERE status='COMPLETED' AND student_type='TUITION' AND academic_year_id = ?`,
+    [academicYearId]
+  );
+
+  const [[schoolOverallExpRow]] = await pool.query(
+    `SELECT COALESCE(SUM(amount), 0) AS overall_expenses
+     FROM expenses WHERE status='ACTIVE' AND expense_type='SCHOOL' AND academic_year_id = ?`,
+    [academicYearId]
+  );
+  const [[tuitionOverallExpRow]] = await pool.query(
+    `SELECT COALESCE(SUM(amount), 0) AS overall_expenses
+     FROM expenses WHERE status='ACTIVE' AND expense_type='TUITION' AND academic_year_id = ?`,
+    [academicYearId]
+  );
+
   const [recentPayments] = await pool.query(
     `SELECT p.receipt_number, s.name AS student_name, p.amount, p.payment_method, p.payment_time, u.full_name AS accountant_name
      FROM payments p
@@ -166,6 +188,9 @@ export async function getDashboardSummary(user, academicYearId) {
       totalStudents: Number(schoolDueRow.total_students),
       studentsWithDue: Number(schoolDueRow.students_with_due),
       studentsFullyPaid: Number(schoolDueRow.students_fully_paid),
+      overallCollection: Number(schoolOverallCollRow.overall_collection),
+      overallExpenses: Number(schoolOverallExpRow.overall_expenses),
+      overallNetCollection: Number(schoolOverallCollRow.overall_collection) - Number(schoolOverallExpRow.overall_expenses),
     },
     tuitionSummary: {
       todayCollection: Number(tuitionRow.tuition_collection),
@@ -175,6 +200,9 @@ export async function getDashboardSummary(user, academicYearId) {
       totalStudents: Number(tuitionDueRow.total_students),
       studentsWithDue: Number(tuitionDueRow.students_with_due),
       studentsFullyPaid: Number(tuitionDueRow.students_fully_paid),
+      overallCollection: Number(tuitionOverallCollRow.overall_collection),
+      overallExpenses: Number(tuitionOverallExpRow.overall_expenses),
+      overallNetCollection: Number(tuitionOverallCollRow.overall_collection) - Number(tuitionOverallExpRow.overall_expenses),
     },
     monthlyChart: chartRows.map((m) => ({
       month: m.month_label,

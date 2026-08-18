@@ -5,7 +5,7 @@ import { validate } from '../middleware/validate.js';
 import { createExpenseSchema, updateExpenseSchema, listExpensesQuerySchema } from '../validators/expense.validator.js';
 
 const router = Router();
-router.use(authenticate, authorize('ADMIN'));
+router.use(authenticate, authorize('ADMIN', 'SCHOOL_ACCOUNTANT', 'TUITION_ACCOUNTANT'));
 
 router.get('/categories', expenseController.categories);
 router.get('/', validate(listExpensesQuerySchema, 'query'), expenseController.list);
