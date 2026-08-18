@@ -228,12 +228,11 @@ export async function getDailyReport(user, date, academicYearId, studentType = n
     sc.param ? [targetDate, sc.param, academicYearId] : [targetDate, academicYearId]
   );
 
-  const [accountantBreakdown] = await pool.query(
+  const [collectionRows] = await pool.query(
     `SELECT
-       p.payment_date,
-       p.received_by,
-       u.full_name AS accountant_name,
-       u.role AS accountant_role,
+       p.received_by AS user_id,
+       u.full_name AS user_name,
+       u.role AS user_role,
        COUNT(*) AS transaction_count,
        SUM(CASE WHEN p.payment_method = 'CASH' THEN p.amount ELSE 0 END) AS cash_total,
        SUM(CASE WHEN p.payment_method = 'UPI'  THEN p.amount ELSE 0 END) AS upi_total,
@@ -241,9 +240,60 @@ export async function getDailyReport(user, date, academicYearId, studentType = n
      FROM payments p
      JOIN users u ON u.id = p.received_by
      WHERE p.status = 'COMPLETED' AND p.payment_date = ? ${sc.sql} AND p.academic_year_id = ?
-     GROUP BY p.payment_date, p.received_by, u.full_name, u.role`,
+     GROUP BY p.received_by, u.full_name, u.role`,
     sc.param ? [targetDate, sc.param, academicYearId] : [targetDate, academicYearId]
   );
+
+  const [expenseRows] = await pool.query(
+    `SELECT
+       e.created_by AS user_id,
+       u.full_name AS user_name,
+       u.role AS user_role,
+       SUM(e.amount) AS expense_total
+     FROM expenses e
+     JOIN users u ON u.id = e.created_by
+     WHERE e.status = 'ACTIVE' AND e.expense_date = ? ${effectiveScope ? 'AND (e.expense_type = ? OR e.expense_type = \'BOTH\')' : ''} AND e.academic_year_id = ?
+     GROUP BY e.created_by, u.full_name, u.role`,
+    effectiveScope ? [targetDate, effectiveScope, academicYearId] : [targetDate, academicYearId]
+  );
+
+  const userMap = new Map();
+
+  for (const row of collectionRows) {
+    userMap.set(row.user_id, {
+      userId: row.user_id,
+      userName: row.user_name,
+      userRole: row.user_role,
+      transactionCount: Number(row.transaction_count),
+      cashTotal: Number(row.cash_total),
+      upiTotal: Number(row.upi_total),
+      overallTotal: Number(row.overall_total),
+      expenseTotal: 0,
+      netAmount: Number(row.overall_total),
+    });
+  }
+
+  for (const row of expenseRows) {
+    if (userMap.has(row.user_id)) {
+      const userObj = userMap.get(row.user_id);
+      userObj.expenseTotal = Number(row.expense_total);
+      userObj.netAmount = userObj.overallTotal - userObj.expenseTotal;
+    } else {
+      userMap.set(row.user_id, {
+        userId: row.user_id,
+        userName: row.user_name,
+        userRole: row.user_role,
+        transactionCount: 0,
+        cashTotal: 0,
+        upiTotal: 0,
+        overallTotal: 0,
+        expenseTotal: Number(row.expense_total),
+        netAmount: -Number(row.expense_total),
+      });
+    }
+  }
+
+  const accountantBreakdown = Array.from(userMap.values());
 
   const [transactions] = await pool.query(
     `SELECT p.receipt_number, s.name AS student_name, s.parent_name, p.student_type, p.amount,
