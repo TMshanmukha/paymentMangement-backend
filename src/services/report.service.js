@@ -119,6 +119,30 @@ export async function getDashboardSummary(user, academicYearId) {
     [academicYearId]
   );
 
+  const [[schoolOverallCashRow]] = await pool.query(
+    `SELECT COALESCE(SUM(amount), 0) AS overall_cash
+     FROM payments WHERE status='COMPLETED' AND student_type='SCHOOL' AND payment_method='CASH' AND academic_year_id = ?`,
+    [academicYearId]
+  );
+
+  const [[schoolOverallUpiRow]] = await pool.query(
+    `SELECT COALESCE(SUM(amount), 0) AS overall_upi
+     FROM payments WHERE status='COMPLETED' AND student_type='SCHOOL' AND payment_method='UPI' AND academic_year_id = ?`,
+    [academicYearId]
+  );
+
+  const [[tuitionOverallCashRow]] = await pool.query(
+    `SELECT COALESCE(SUM(amount), 0) AS overall_cash
+     FROM payments WHERE status='COMPLETED' AND student_type='TUITION' AND payment_method='CASH' AND academic_year_id = ?`,
+    [academicYearId]
+  );
+
+  const [[tuitionOverallUpiRow]] = await pool.query(
+    `SELECT COALESCE(SUM(amount), 0) AS overall_upi
+     FROM payments WHERE status='COMPLETED' AND student_type='TUITION' AND payment_method='UPI' AND academic_year_id = ?`,
+    [academicYearId]
+  );
+
   const [[schoolOverallExpRow]] = await pool.query(
     `SELECT COALESCE(SUM(amount), 0) AS overall_expenses
      FROM expenses WHERE status='ACTIVE' AND expense_type='SCHOOL' AND academic_year_id = ?`,
@@ -137,7 +161,7 @@ export async function getDashboardSummary(user, academicYearId) {
      JOIN users u ON u.id = p.received_by
      WHERE p.status='COMPLETED' ${scp.sql} AND p.academic_year_id = ?
      ORDER BY p.payment_time DESC LIMIT 5`,
-    scp.param ? [scp.param, academicYearId] : [academicYearId]
+     scp.param ? [scp.param, academicYearId] : [academicYearId]
   );
 
   const [recentExpenses] = await pool.query(
@@ -152,10 +176,10 @@ export async function getDashboardSummary(user, academicYearId) {
 
   const [chartRows] = await pool.query(
     `SELECT DATE_FORMAT(payment_date, '%b %y') AS month_label,
-            SUM(CASE WHEN student_type='SCHOOL' THEN amount ELSE 0 END) AS school,
-            SUM(CASE WHEN student_type='TUITION' THEN amount ELSE 0 END) AS tuition,
-            SUM(amount) AS total,
-            MIN(payment_date) AS sort_date
+             SUM(CASE WHEN student_type='SCHOOL' THEN amount ELSE 0 END) AS school,
+             SUM(CASE WHEN student_type='TUITION' THEN amount ELSE 0 END) AS tuition,
+             SUM(amount) AS total,
+             MIN(payment_date) AS sort_date
      FROM payments
      WHERE status='COMPLETED' ${sc.sql} AND academic_year_id = ?
      GROUP BY DATE_FORMAT(payment_date, '%b %y')
@@ -191,6 +215,8 @@ export async function getDashboardSummary(user, academicYearId) {
       overallCollection: Number(schoolOverallCollRow.overall_collection),
       overallExpenses: Number(schoolOverallExpRow.overall_expenses),
       overallNetCollection: Number(schoolOverallCollRow.overall_collection) - Number(schoolOverallExpRow.overall_expenses),
+      overallCashCollection: Number(schoolOverallCashRow.overall_cash),
+      overallUpiCollection: Number(schoolOverallUpiRow.overall_upi),
     },
     tuitionSummary: {
       todayCollection: Number(tuitionRow.tuition_collection),
@@ -203,6 +229,8 @@ export async function getDashboardSummary(user, academicYearId) {
       overallCollection: Number(tuitionOverallCollRow.overall_collection),
       overallExpenses: Number(tuitionOverallExpRow.overall_expenses),
       overallNetCollection: Number(tuitionOverallCollRow.overall_collection) - Number(tuitionOverallExpRow.overall_expenses),
+      overallCashCollection: Number(tuitionOverallCashRow.overall_cash),
+      overallUpiCollection: Number(tuitionOverallUpiRow.overall_upi),
     },
     monthlyChart: chartRows.map((m) => ({
       month: m.month_label,
