@@ -144,12 +144,16 @@ export async function getDashboardSummary(user, academicYearId) {
   );
 
   const [[schoolOverallExpRow]] = await pool.query(
-    `SELECT COALESCE(SUM(amount), 0) AS overall_expenses
+    `SELECT COALESCE(SUM(amount), 0) AS overall_expenses,
+            SUM(CASE WHEN payment_method = 'CASH' THEN amount ELSE 0 END) AS overall_cash_expenses,
+            SUM(CASE WHEN payment_method = 'UPI' THEN amount ELSE 0 END) AS overall_upi_expenses
      FROM expenses WHERE status='ACTIVE' AND expense_type='SCHOOL' AND academic_year_id = ?`,
     [academicYearId]
   );
   const [[tuitionOverallExpRow]] = await pool.query(
-    `SELECT COALESCE(SUM(amount), 0) AS overall_expenses
+    `SELECT COALESCE(SUM(amount), 0) AS overall_expenses,
+            SUM(CASE WHEN payment_method = 'CASH' THEN amount ELSE 0 END) AS overall_cash_expenses,
+            SUM(CASE WHEN payment_method = 'UPI' THEN amount ELSE 0 END) AS overall_upi_expenses
      FROM expenses WHERE status='ACTIVE' AND expense_type='TUITION' AND academic_year_id = ?`,
     [academicYearId]
   );
@@ -217,6 +221,8 @@ export async function getDashboardSummary(user, academicYearId) {
       overallNetCollection: Number(schoolOverallCollRow.overall_collection) - Number(schoolOverallExpRow.overall_expenses),
       overallCashCollection: Number(schoolOverallCashRow.overall_cash),
       overallUpiCollection: Number(schoolOverallUpiRow.overall_upi),
+      overallNetCash: Number(schoolOverallCashRow.overall_cash) - Number(schoolOverallExpRow.overall_cash_expenses),
+      overallNetUpi: Number(schoolOverallUpiRow.overall_upi) - Number(schoolOverallExpRow.overall_upi_expenses),
     },
     tuitionSummary: {
       todayCollection: Number(tuitionRow.tuition_collection),
@@ -231,6 +237,8 @@ export async function getDashboardSummary(user, academicYearId) {
       overallNetCollection: Number(tuitionOverallCollRow.overall_collection) - Number(tuitionOverallExpRow.overall_expenses),
       overallCashCollection: Number(tuitionOverallCashRow.overall_cash),
       overallUpiCollection: Number(tuitionOverallUpiRow.overall_upi),
+      overallNetCash: Number(tuitionOverallCashRow.overall_cash) - Number(tuitionOverallExpRow.overall_cash_expenses),
+      overallNetUpi: Number(tuitionOverallUpiRow.overall_upi) - Number(tuitionOverallExpRow.overall_upi_expenses),
     },
     monthlyChart: chartRows.map((m) => ({
       month: m.month_label,

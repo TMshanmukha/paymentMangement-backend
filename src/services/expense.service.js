@@ -63,19 +63,20 @@ export async function createExpense(user, data) {
   const scope = scopeForRole(user.role);
   assertTypeAllowed(scope, data.expenseType);
 
-  // Validate expense amount does not exceed total net collection for the academic year
+  // Validate expense amount does not exceed total net collection for the academic year and payment method
+  const paymentMethod = data.paymentMethod;
   const [[{ totalCollection }]] = await pool.query(
-    "SELECT COALESCE(SUM(amount), 0) AS totalCollection FROM payments WHERE status = 'COMPLETED' AND academic_year_id = ?",
-    [data.academicYearId]
+    "SELECT COALESCE(SUM(amount), 0) AS totalCollection FROM payments WHERE status = 'COMPLETED' AND payment_method = ? AND academic_year_id = ?",
+    [paymentMethod, data.academicYearId]
   );
   const [[{ totalExpenses }]] = await pool.query(
-    "SELECT COALESCE(SUM(amount), 0) AS totalExpenses FROM expenses WHERE status = 'ACTIVE' AND academic_year_id = ?",
-    [data.academicYearId]
+    "SELECT COALESCE(SUM(amount), 0) AS totalExpenses FROM expenses WHERE status = 'ACTIVE' AND payment_method = ? AND academic_year_id = ?",
+    [paymentMethod, data.academicYearId]
   );
   const availableBalance = Number(totalCollection) - Number(totalExpenses);
   if (Number(data.amount) > availableBalance) {
     throw ApiError.badRequest(
-      `Expense amount (₹${data.amount}) exceeds the remaining available net collection (₹${availableBalance})`,
+      `Expense amount (₹${data.amount}) exceeds the remaining available ${paymentMethod} balance (₹${availableBalance})`,
       'EXPENSE_EXCEEDS_COLLECTION'
     );
   }
@@ -142,21 +143,32 @@ export async function updateExpense(user, id, data) {
   }
   if (data.expenseType) assertTypeAllowed(scope, data.expenseType);
 
-  // If amount is updated, validate it does not exceed net collection
-  if (data.amount !== undefined && Number(data.amount) !== Number(existing.amount)) {
+  // Validate expense amount does not exceed available balance for the target payment method
+  const targetAmount = data.amount !== undefined ? Number(data.amount) : Number(existing.amount);
+  const targetPaymentMethod = data.paymentMethod !== undefined ? data.paymentMethod : existing.payment_method;
+  const isAmountChanged = data.amount !== undefined && Number(data.amount) !== Number(existing.amount);
+  const isMethodChanged = data.paymentMethod !== undefined && data.paymentMethod !== existing.payment_method;
+
+  if (isAmountChanged || isMethodChanged) {
     const academicYearId = existing.academic_year_id;
     const [[{ totalCollection }]] = await pool.query(
-      "SELECT COALESCE(SUM(amount), 0) AS totalCollection FROM payments WHERE status = 'COMPLETED' AND academic_year_id = ?",
-      [academicYearId]
+      "SELECT COALESCE(SUM(amount), 0) AS totalCollection FROM payments WHERE status = 'COMPLETED' AND payment_method = ? AND academic_year_id = ?",
+      [targetPaymentMethod, academicYearId]
     );
     const [[{ totalExpenses }]] = await pool.query(
-      "SELECT COALESCE(SUM(amount), 0) AS totalExpenses FROM expenses WHERE status = 'ACTIVE' AND academic_year_id = ?",
-      [academicYearId]
+      "SELECT COALESCE(SUM(amount), 0) AS totalExpenses FROM expenses WHERE status = 'ACTIVE' AND payment_method = ? AND academic_year_id = ?",
+      [targetPaymentMethod, academicYearId]
     );
-    const availableBalance = Number(totalCollection) - (Number(totalExpenses) - Number(existing.amount));
-    if (Number(data.amount) > availableBalance) {
+
+    // If the existing expense is ACTIVE and already used the target payment method,
+    // its original amount is included in totalExpenses. We should subtract it to calculate available balance.
+    const isCurrentlyActiveInTargetMethod = existing.status === 'ACTIVE' && existing.payment_method === targetPaymentMethod;
+    const adjustedExpenses = isCurrentlyActiveInTargetMethod ? Number(totalExpenses) - Number(existing.amount) : Number(totalExpenses);
+    const availableBalance = Number(totalCollection) - adjustedExpenses;
+
+    if (targetAmount > availableBalance) {
       throw ApiError.badRequest(
-        `Updated expense amount (₹${data.amount}) exceeds the remaining available net collection (₹${availableBalance})`,
+        `Updated expense amount (₹${targetAmount}) exceeds the remaining available ${targetPaymentMethod} balance (₹${availableBalance})`,
         'EXPENSE_EXCEEDS_COLLECTION'
       );
     }
