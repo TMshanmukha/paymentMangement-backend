@@ -7,16 +7,16 @@
  */
 import bcrypt from 'bcrypt';
 
-const DEMO_PASSWORD = 'Passw0rd!';
-const USERNAMES = ['admin', 'school.accountant', 'tuition.accountant'];
+const DEMO_PASSWORD = 'Vedaeduhunt@1';
+const USERNAMES = ['VEDAVYAS', 'school.accountant', 'tuition.accountant'];
 
 async function main() {
-  console.log(`Generating bcrypt hashes for demo password: ${DEMO_PASSWORD}\n`);
+  console.log(`Generating bcrypt hashes for password: ${DEMO_PASSWORD}\n`);
   for (const username of USERNAMES) {
     const hash = await bcrypt.hash(DEMO_PASSWORD, 10);
     console.log(`UPDATE users SET password_hash = '${hash}' WHERE username = '${username}';`);
   }
-  console.log('\nRun the above statements against your database, then log in with any username above + "Passw0rd!".');
+  console.log('\nRun the above statements against your database, then log in with any username above + password.');
 }
 
 main();
