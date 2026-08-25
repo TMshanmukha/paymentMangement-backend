@@ -46,7 +46,7 @@ export async function listStudents(user, query) {
     params.push(academicYearId);
   }
   if (search) {
-    where.push('(name LIKE ? OR parent_name LIKE ? OR student_code LIKE ? OR parent_phone LIKE ?)');
+    where.push('(student_name LIKE ? OR parent_name LIKE ? OR student_code LIKE ? OR parent_phone LIKE ?)');
     const like = `%${search}%`;
     params.push(like, like, like, like);
   }
@@ -105,20 +105,20 @@ export async function createStudent(user, data) {
   assertTypeAllowed(scope, data.studentType);
 
   return withTransaction(async (conn) => {
-    // Find the highest existing numeric student code (STU-######) and lock it for update
+    // Find the highest existing numeric student code (STU-###### or VVS-######) and lock it for update
     const [rows] = await conn.query(
-      "SELECT student_code FROM students WHERE student_code LIKE 'STU-%' ORDER BY CAST(SUBSTRING(student_code, 5) AS UNSIGNED) DESC LIMIT 1 FOR UPDATE"
+      "SELECT student_code FROM students WHERE student_code LIKE 'STU-%' OR student_code LIKE 'VVS-%' ORDER BY CAST(SUBSTRING(student_code, 5) AS UNSIGNED) DESC LIMIT 1 FOR UPDATE"
     );
     
     let nextNum = 1;
     if (rows[0] && rows[0].student_code) {
-      const match = rows[0].student_code.match(/^STU-(\d+)$/);
+      const match = rows[0].student_code.match(/^(?:STU|VVS)-(\d+)$/);
       if (match) {
         nextNum = parseInt(match[1], 10) + 1;
       }
     }
     
-    const studentCode = `STU-${String(nextNum).padStart(6, '0')}`;
+    const studentCode = `VVS-${String(nextNum).padStart(6, '0')}`;
 
     const [result] = await conn.query(
       `INSERT INTO students
@@ -167,6 +167,11 @@ export async function updateStudent(user, id, data) {
 
   const fields = [];
   const params = [];
+  // If deactivating and cancelDues is true, force totalFee to paidAmount
+  if (data.status === 'INACTIVE' && existing.status === 'ACTIVE' && data.cancelDues) {
+    data.totalFee = existing.paid_amount;
+  }
+
   const map = {
     name: 'name',
     parentName: 'parent_name',
@@ -204,16 +209,28 @@ export async function updateStudent(user, id, data) {
   return getStudentById(user, id);
 }
 
-export async function updateStudentStatus(user, id, status) {
-  await getStudentById(user, id);
-  await pool.query('UPDATE students SET status = ? WHERE id = ?', [status, id]);
-  await writeAudit({
-    userId: user.id,
-    action: status === 'INACTIVE' ? 'STUDENT_DEACTIVATED' : 'STUDENT_ACTIVATED',
-    entity: 'student',
-    entityId: id,
-    description: `Student #${id} status changed to ${status}`,
+export async function updateStudentStatus(user, id, status, cancelDues = false) {
+  const student = await getStudentById(user, id);
+  
+  await withTransaction(async (conn) => {
+    await conn.query('UPDATE students SET status = ? WHERE id = ?', [status, id]);
+    
+    if (status === 'INACTIVE' && cancelDues) {
+      // Cancel dues by setting total_fee = paid_amount
+      const paidAmount = Number(student.paid_amount || 0);
+      await conn.query('UPDATE students SET total_fee = ? WHERE id = ?', [paidAmount, id]);
+    }
+    
+    await writeAudit({
+      conn,
+      userId: user.id,
+      action: status === 'INACTIVE' ? 'STUDENT_DEACTIVATED' : 'STUDENT_ACTIVATED',
+      entity: 'student',
+      entityId: id,
+      description: `Student #${id} status changed to ${status}${cancelDues ? ' with dues cancelled' : ''}`,
+    });
   });
+  
   return getStudentById(user, id);
 }
 
@@ -245,11 +262,42 @@ export async function listClasses(user, academicYearId, studentType = null, admi
     conditions.push('academic_year_id = ?');
     params.push(academicYearId);
   }
+  
+  // Only active students in the class cards
+  conditions.push("status = 'ACTIVE'");
+
   if (conditions.length) {
     sql += ' WHERE ' + conditions.join(' AND ');
   }
   sql += ' GROUP BY class';
   const [rows] = await pool.query(sql, params);
+
+  // Status counts (Active / Inactive)
+  const statusConditions = [];
+  const statusParams = [];
+  if (scope) {
+    statusConditions.push('student_type = ?');
+    statusParams.push(scope);
+  } else if (studentType) {
+    statusConditions.push('student_type = ?');
+    statusParams.push(studentType);
+  }
+  if (admissionType) {
+    statusConditions.push('admission_type = ?');
+    statusParams.push(admissionType);
+  }
+  if (academicYearId) {
+    statusConditions.push('academic_year_id = ?');
+    statusParams.push(academicYearId);
+  }
+  const statusWhere = statusConditions.length ? `WHERE ${statusConditions.join(' AND ')}` : '';
+  const [statusRows] = await pool.query(
+    `SELECT status, COUNT(*) AS count FROM students ${statusWhere} GROUP BY status`,
+    statusParams
+  );
+  
+  const activeCount = statusRows.find(r => r.status === 'ACTIVE')?.count || 0;
+  const inactiveCount = statusRows.find(r => r.status === 'INACTIVE')?.count || 0;
 
   const STANDARD_CLASSES = ['Nursery', 'LKG', 'UKG', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'];
   const dbClassMap = new Map(
@@ -294,5 +342,9 @@ export async function listClasses(user, academicYearId, studentType = null, admi
     finalClasses.push(dbClassMap.get(''));
   }
 
-  return finalClasses;
+  return {
+    classes: finalClasses,
+    activeCount,
+    inactiveCount
+  };
 }

@@ -113,7 +113,7 @@ export async function createPayment(user, data) {
     );
 
     const insertId = result.insertId;
-    const receiptNumber = `VVS-${String(insertId).padStart(6, '0')}`;
+    const receiptNumber = `REC-${String(insertId).padStart(6, '0')}`;
 
     await conn.query(
       'UPDATE payments SET receipt_number = ? WHERE id = ?',

@@ -34,6 +34,6 @@ export const update = asyncHandler(async (req, res) => {
 });
 
 export const updateStatus = asyncHandler(async (req, res) => {
-  const student = await studentService.updateStudentStatus(req.user, req.params.id, req.body.status);
+  const student = await studentService.updateStudentStatus(req.user, req.params.id, req.body.status, req.body.cancelDues);
   res.json({ success: true, message: 'Student status updated', data: student });
 });

@@ -18,10 +18,13 @@ export const createStudentSchema = z.object({
   status: z.enum(['ACTIVE', 'INACTIVE']).optional().default('ACTIVE'),
 });
 
-export const updateStudentSchema = createStudentSchema.partial();
+export const updateStudentSchema = createStudentSchema.extend({
+  cancelDues: z.boolean().optional(),
+}).partial();
 
 export const updateStudentStatusSchema = z.object({
   status: z.enum(['ACTIVE', 'INACTIVE']),
+  cancelDues: z.boolean().optional(),
 });
 
 export const listStudentsQuerySchema = z.object({
