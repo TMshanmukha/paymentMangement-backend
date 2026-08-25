@@ -25,39 +25,39 @@ export async function listStudents(user, query) {
   const params = [];
 
   if (scope) {
-    where.push('student_type = ?');
+    where.push('d.student_type = ?');
     params.push(scope);
   } else if (studentType) {
-    where.push('student_type = ?');
+    where.push('d.student_type = ?');
     params.push(studentType);
   }
 
   if (admissionType) {
-    where.push('admission_type = ?');
+    where.push('d.admission_type = ?');
     params.push(admissionType);
   }
 
   if (status) {
-    where.push('status = ?');
+    where.push('d.status = ?');
     params.push(status);
   }
   if (academicYearId) {
-    where.push('academic_year_id = ?');
+    where.push('d.academic_year_id = ?');
     params.push(academicYearId);
   }
   if (search) {
-    where.push('(student_name LIKE ? OR parent_name LIKE ? OR student_code LIKE ? OR parent_phone LIKE ?)');
+    where.push('(d.student_name LIKE ? OR d.parent_name LIKE ? OR d.student_code LIKE ? OR d.parent_phone LIKE ? OR s.student_phone LIKE ?)');
     const like = `%${search}%`;
-    params.push(like, like, like, like);
+    params.push(like, like, like, like, like);
   }
   if (dueOnly) {
-    where.push('student_id IN (SELECT student_id FROM v_student_dues WHERE due_amount > 0)');
+    where.push('d.student_id IN (SELECT student_id FROM v_student_dues WHERE due_amount > 0)');
   }
   if (className !== undefined) {
     if (className === '' || className === 'null') {
-      where.push('(class IS NULL OR class = "")');
+      where.push('(d.class IS NULL OR d.class = "")');
     } else {
-      where.push('class = ?');
+      where.push('d.class = ?');
       params.push(className);
     }
   }
@@ -66,13 +66,17 @@ export async function listStudents(user, query) {
   const offset = (page - 1) * pageSize;
 
   const [rows] = await pool.query(
-    `SELECT d.* FROM v_student_dues d ${whereSql.replace(/student_id/g, 'd.student_id')}
+    `SELECT d.* FROM v_student_dues d
+     JOIN students s ON s.id = d.student_id
+     ${whereSql}
      ORDER BY d.student_id ASC LIMIT ? OFFSET ?`,
     [...params, pageSize, offset]
   );
 
   const [countRows] = await pool.query(
-    `SELECT COUNT(*) AS total FROM v_student_dues d ${whereSql.replace(/student_id/g, 'd.student_id')}`,
+    `SELECT COUNT(*) AS total FROM v_student_dues d
+     JOIN students s ON s.id = d.student_id
+     ${whereSql}`,
     params
   );
 

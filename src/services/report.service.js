@@ -511,27 +511,36 @@ export async function getDueReport(user, query) {
   const scope = scopeForRole(user.role);
   const { studentType, academicYearId, className, fullyPaid, search, page = 1, pageSize = 50 } = query;
 
-  const where = ["status = 'ACTIVE'"];
+  const where = ["d.status = 'ACTIVE'"];
   const params = [];
-  if (scope) { where.push('student_type = ?'); params.push(scope); }
-  else if (studentType) { where.push('student_type = ?'); params.push(studentType); }
-  if (academicYearId) { where.push('academic_year_id = ?'); params.push(academicYearId); }
-  if (className) { where.push('class = ?'); params.push(className); }
-  if (fullyPaid === 'true') where.push('due_amount <= 0');
-  else if (fullyPaid === 'false') where.push('due_amount > 0');
+  if (scope) { where.push('d.student_type = ?'); params.push(scope); }
+  else if (studentType) { where.push('d.student_type = ?'); params.push(studentType); }
+  if (academicYearId) { where.push('d.academic_year_id = ?'); params.push(academicYearId); }
+  if (className) { where.push('d.class = ?'); params.push(className); }
+  if (fullyPaid === 'true') where.push('d.due_amount <= 0');
+  else if (fullyPaid === 'false') where.push('d.due_amount > 0');
   if (search) {
-    where.push('(student_name LIKE ? OR parent_name LIKE ?)');
-    params.push(`%${search}%`, `%${search}%`);
+    where.push('(d.student_name LIKE ? OR d.parent_name LIKE ? OR d.student_code LIKE ? OR d.parent_phone LIKE ? OR s.student_phone LIKE ?)');
+    const like = `%${search}%`;
+    params.push(like, like, like, like, like);
   }
 
   const whereSql = `WHERE ${where.join(' AND ')}`;
   const offset = (page - 1) * pageSize;
 
   const [rows] = await pool.query(
-    `SELECT * FROM v_student_dues ${whereSql} ORDER BY due_amount DESC LIMIT ? OFFSET ?`,
+    `SELECT d.* FROM v_student_dues d
+     JOIN students s ON s.id = d.student_id
+     ${whereSql}
+     ORDER BY d.due_amount DESC LIMIT ? OFFSET ?`,
     [...params, Number(pageSize), offset]
   );
-  const [[{ total }]] = await pool.query(`SELECT COUNT(*) AS total FROM v_student_dues ${whereSql}`, params);
+  const [[{ total }]] = await pool.query(
+    `SELECT COUNT(*) AS total FROM v_student_dues d
+     JOIN students s ON s.id = d.student_id
+     ${whereSql}`,
+    params
+  );
 
   return { items: rows, total, page: Number(page), pageSize: Number(pageSize) };
 }
