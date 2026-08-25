@@ -217,9 +217,9 @@ export async function listPayments(user, query) {
     params.push(status);
   }
   if (search) {
-    where.push('(s.name LIKE ? OR s.parent_name LIKE ? OR p.receipt_number LIKE ?)');
-    const like = `%${search}%`;
-    params.push(like, like, like);
+    where.push('(LOWER(s.name) LIKE ? OR LOWER(s.parent_name) LIKE ? OR LOWER(p.receipt_number) LIKE ? OR LOWER(s.student_code) LIKE ? OR LOWER(s.parent_phone) LIKE ? OR LOWER(s.student_phone) LIKE ?)');
+    const like = `%${search.toLowerCase()}%`;
+    params.push(like, like, like, like, like, like);
   }
 
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';

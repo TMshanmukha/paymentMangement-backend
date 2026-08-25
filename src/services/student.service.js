@@ -46,8 +46,8 @@ export async function listStudents(user, query) {
     params.push(academicYearId);
   }
   if (search) {
-    where.push('(d.student_name LIKE ? OR d.parent_name LIKE ? OR d.student_code LIKE ? OR d.parent_phone LIKE ? OR s.student_phone LIKE ?)');
-    const like = `%${search}%`;
+    where.push('(LOWER(d.student_name) LIKE ? OR LOWER(d.parent_name) LIKE ? OR LOWER(d.student_code) LIKE ? OR LOWER(d.parent_phone) LIKE ? OR LOWER(s.student_phone) LIKE ?)');
+    const like = `%${search.toLowerCase()}%`;
     params.push(like, like, like, like, like);
   }
   if (dueOnly) {
