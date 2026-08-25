@@ -104,16 +104,29 @@ export async function createStudent(user, data) {
   const scope = scopeForRole(user.role);
   assertTypeAllowed(scope, data.studentType);
 
-  const tempCode = 'TEMP-' + Math.random().toString(36).substring(2, 10);
-
   return withTransaction(async (conn) => {
+    // Find the highest existing numeric student code (STU-######) and lock it for update
+    const [rows] = await conn.query(
+      "SELECT student_code FROM students WHERE student_code LIKE 'STU-%' ORDER BY CAST(SUBSTRING(student_code, 5) AS UNSIGNED) DESC LIMIT 1 FOR UPDATE"
+    );
+    
+    let nextNum = 1;
+    if (rows[0] && rows[0].student_code) {
+      const match = rows[0].student_code.match(/^STU-(\d+)$/);
+      if (match) {
+        nextNum = parseInt(match[1], 10) + 1;
+      }
+    }
+    
+    const studentCode = `STU-${String(nextNum).padStart(6, '0')}`;
+
     const [result] = await conn.query(
       `INSERT INTO students
          (student_code, name, parent_name, parent_phone, student_phone, class, section,
           student_type, admission_type, academic_year_id, total_fee, joining_date, address, status, created_by)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        tempCode,
+        studentCode,
         data.name,
         data.parentName,
         data.parentPhone,
@@ -132,12 +145,6 @@ export async function createStudent(user, data) {
     );
 
     const insertId = result.insertId;
-    const studentCode = `STU-${String(insertId).padStart(6, '0')}`;
-
-    await conn.query(
-      'UPDATE students SET student_code = ? WHERE id = ?',
-      [studentCode, insertId]
-    );
 
     await writeAudit({
       conn,
@@ -145,7 +152,7 @@ export async function createStudent(user, data) {
       action: 'STUDENT_CREATED',
       entity: 'student',
       entityId: insertId,
-      description: `${data.name} added as ${data.studentType} student`,
+      description: `${data.name} added as ${data.studentType} student with ID ${studentCode}`,
     });
 
     const [studentRows] = await conn.query('SELECT * FROM v_student_dues WHERE student_id = ? LIMIT 1', [insertId]);
