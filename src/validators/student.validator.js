@@ -34,6 +34,7 @@ export const listStudentsQuerySchema = z.object({
   academicYearId: z.coerce.number().int().positive().optional(),
   search: z.string().optional(),
   dueOnly: z.coerce.boolean().optional(),
+  siblingsOnly: z.coerce.boolean().optional(),
   class: z.string().optional(),
   page: z.coerce.number().int().min(1).optional().default(1),
   pageSize: z.coerce.number().int().min(1).max(10000).optional().default(20),

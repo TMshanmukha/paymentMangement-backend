@@ -18,7 +18,7 @@ function assertTypeAllowed(scope, studentType) {
 
 export async function listStudents(user, query) {
   const scope = scopeForRole(user.role);
-  const { studentType, admissionType, status, academicYearId, search, dueOnly, page, pageSize } = query;
+  const { studentType, admissionType, status, academicYearId, search, dueOnly, siblingsOnly, page, pageSize } = query;
   const className = query.class;
 
   const where = [];
@@ -52,6 +52,9 @@ export async function listStudents(user, query) {
   }
   if (dueOnly) {
     where.push('d.student_id IN (SELECT student_id FROM v_student_dues WHERE due_amount > 0)');
+  }
+  if (siblingsOnly) {
+    where.push('d.parent_phone IN (SELECT parent_phone FROM students GROUP BY parent_phone, parent_name HAVING COUNT(*) > 1)');
   }
   if (className !== undefined) {
     if (className === '' || className === 'null') {
