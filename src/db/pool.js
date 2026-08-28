@@ -57,3 +57,25 @@ export async function withTransaction(callback) {
     conn.release();
   }
 }
+
+// Run database schema migration for student index
+(async () => {
+  try {
+    const [indexes] = await pool.query("SHOW INDEX FROM students WHERE Key_name = 'student_code'");
+    if (indexes.length > 0) {
+      console.log('[db] Migrating students table constraints for academic year support...');
+      const conn = await pool.getConnection();
+      try {
+        await conn.query('ALTER TABLE students DROP INDEX student_code');
+        await conn.query('ALTER TABLE students ADD UNIQUE KEY idx_student_code_year (student_code, academic_year_id)');
+        console.log('[db] Constraint migration completed successfully.');
+      } catch (e) {
+        console.error('[db] Constraint migration error:', e.message);
+      } finally {
+        conn.release();
+      }
+    }
+  } catch (err) {
+    console.error('[db] Index check failed:', err);
+  }
+})();
