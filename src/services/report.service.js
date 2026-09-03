@@ -178,6 +178,11 @@ export async function getDashboardSummary(user, academicYearId) {
     scope ? [scope, academicYearId] : [academicYearId]
   );
 
+  const [[ayRow]] = await pool.query(
+    'SELECT start_date, end_date FROM academic_years WHERE id = ?',
+    [academicYearId]
+  );
+
   const [chartRows] = await pool.query(
     `SELECT DATE_FORMAT(payment_date, '%b %y') AS month_label,
              SUM(CASE WHEN student_type='SCHOOL' THEN amount ELSE 0 END) AS school,
@@ -190,6 +195,44 @@ export async function getDashboardSummary(user, academicYearId) {
      ORDER BY sort_date ASC`,
     sc.param ? [sc.param, academicYearId] : [academicYearId]
   );
+
+  const monthlyChart = [];
+  if (ayRow) {
+    const start = new Date(ayRow.start_date);
+    const end = new Date(ayRow.end_date);
+    
+    let current = new Date(start.getFullYear(), start.getMonth(), 1);
+    const last = new Date(end.getFullYear(), end.getMonth(), 1);
+    
+    while (current <= last) {
+      const label = current.toLocaleDateString('en-US', { month: 'short' }) + ' ' + current.getFullYear().toString().slice(-2);
+      monthlyChart.push({
+        month: label,
+        school: 0,
+        tuition: 0,
+        total: 0
+      });
+      current.setMonth(current.getMonth() + 1);
+    }
+  }
+
+  const dbChartMap = new Map(
+    chartRows.map(r => [String(r.month_label).toLowerCase().trim(), r])
+  );
+
+  const finalChart = monthlyChart.map(m => {
+    const key = m.month.toLowerCase().trim();
+    if (dbChartMap.has(key)) {
+      const row = dbChartMap.get(key);
+      return {
+        month: m.month,
+        school: scope === 'TUITION' ? 0 : Number(row.school),
+        tuition: scope === 'SCHOOL' ? 0 : Number(row.tuition),
+        total: scope === 'SCHOOL' ? Number(row.school) : (scope === 'TUITION' ? Number(row.tuition) : Number(row.total))
+      };
+    }
+    return m;
+  });
 
   return {
     todayCollection: Number(collectionRow.today_collection),
@@ -240,12 +283,7 @@ export async function getDashboardSummary(user, academicYearId) {
       overallNetCash: Number(tuitionOverallCashRow.overall_cash) - Number(tuitionOverallExpRow.overall_cash_expenses),
       overallNetUpi: Number(tuitionOverallUpiRow.overall_upi) - Number(tuitionOverallExpRow.overall_upi_expenses),
     },
-    monthlyChart: chartRows.map((m) => ({
-      month: m.month_label,
-      school: scope === 'TUITION' ? 0 : Number(m.school),
-      tuition: scope === 'SCHOOL' ? 0 : Number(m.tuition),
-      total: scope === 'SCHOOL' ? Number(m.school) : (scope === 'TUITION' ? Number(m.tuition) : Number(m.total))
-    })),
+    monthlyChart: finalChart,
   };
 }
 
@@ -516,7 +554,7 @@ export async function getDueReport(user, query) {
   if (scope) { where.push('d.student_type = ?'); params.push(scope); }
   else if (studentType) { where.push('d.student_type = ?'); params.push(studentType); }
   if (academicYearId) { where.push('d.academic_year_id = ?'); params.push(academicYearId); }
-  if (className) { where.push('d.class = ?'); params.push(className); }
+  if (className) { where.push('LOWER(TRIM(d.class)) = LOWER(TRIM(?))'); params.push(className); }
   if (fullyPaid === 'true') where.push('d.due_amount <= 0');
   else if (fullyPaid === 'false') where.push('d.due_amount > 0');
   if (search) {

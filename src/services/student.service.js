@@ -16,6 +16,16 @@ function assertTypeAllowed(scope, studentType) {
   }
 }
 
+const STANDARD_CLASSES = ['Nursery', 'LKG', 'UKG', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'];
+
+export function normalizeClassName(cls) {
+  if (!cls) return null;
+  const trimmed = String(cls).trim();
+  const lower = trimmed.toLowerCase();
+  const matched = STANDARD_CLASSES.find(sc => sc.toLowerCase() === lower);
+  return matched || trimmed;
+}
+
 export async function listStudents(user, query) {
   const scope = scopeForRole(user.role);
   const { studentType, admissionType, status, academicYearId, search, dueOnly, siblingsOnly, page, pageSize } = query;
@@ -60,7 +70,7 @@ export async function listStudents(user, query) {
     if (className === '' || className === 'null') {
       where.push('(d.class IS NULL OR d.class = "")');
     } else {
-      where.push('d.class = ?');
+      where.push('LOWER(TRIM(d.class)) = LOWER(TRIM(?))');
       params.push(className);
     }
   }
@@ -127,6 +137,8 @@ export async function createStudent(user, data) {
     
     const studentCode = `VVS-${String(nextNum).padStart(6, '0')}`;
 
+    const normalizedClass = normalizeClassName(data.class);
+
     const [result] = await conn.query(
       `INSERT INTO students
          (student_code, name, parent_name, parent_phone, student_phone, class, section,
@@ -138,7 +150,7 @@ export async function createStudent(user, data) {
         data.parentName,
         data.parentPhone,
         data.studentPhone || null,
-        data.class || null,
+        normalizedClass,
         data.section || null,
         data.studentType,
         data.admissionType || 'REGULAR',
@@ -177,6 +189,10 @@ export async function updateStudent(user, id, data) {
   // If deactivating and cancelDues is true, force totalFee to paidAmount
   if (data.status === 'INACTIVE' && existing.status === 'ACTIVE' && data.cancelDues) {
     data.totalFee = existing.paid_amount;
+  }
+
+  if (data.class !== undefined) {
+    data.class = normalizeClassName(data.class);
   }
 
   const map = {
@@ -246,7 +262,8 @@ export async function listClasses(user, academicYearId, studentType = null, admi
   const params = [];
   let sql = `
     SELECT
-      class,
+      LOWER(TRIM(COALESCE(class, ''))) AS class_key,
+      MIN(class) AS class,
       COUNT(*) AS student_count,
       SUM(total_fee) AS total_fee,
       SUM(paid_amount) AS paid_amount,
@@ -276,7 +293,7 @@ export async function listClasses(user, academicYearId, studentType = null, admi
   if (conditions.length) {
     sql += ' WHERE ' + conditions.join(' AND ');
   }
-  sql += ' GROUP BY class';
+  sql += " GROUP BY LOWER(TRIM(COALESCE(class, '')))";
   const [rows] = await pool.query(sql, params);
 
   // Status counts (Active / Inactive)
@@ -306,9 +323,8 @@ export async function listClasses(user, academicYearId, studentType = null, admi
   const activeCount = statusRows.find(r => r.status === 'ACTIVE')?.count || 0;
   const inactiveCount = statusRows.find(r => r.status === 'INACTIVE')?.count || 0;
 
-  const STANDARD_CLASSES = ['Nursery', 'LKG', 'UKG', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'];
   const dbClassMap = new Map(
-    rows.map(r => [String(r.class || '').toLowerCase().trim(), r])
+    rows.map(r => [r.class_key, r])
   );
 
   const finalClasses = [];
@@ -336,9 +352,8 @@ export async function listClasses(user, academicYearId, studentType = null, admi
 
   // Also include any non-standard class that has students currently
   for (const row of rows) {
-    const className = row.class;
-    if (className === null || className === '') continue;
-    const key = String(className).toLowerCase().trim();
+    const key = row.class_key;
+    if (key === '') continue;
     if (!seen.has(key)) {
       finalClasses.push(row);
     }

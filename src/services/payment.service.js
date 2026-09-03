@@ -38,6 +38,16 @@ function getIndiaDateTimeString() {
   return `${yyyy}-${mm}-${dd} ${hh}:${min}:${ss}`;
 }
 
+function getIndiaDateString(d) {
+  const dateObj = new Date(d);
+  const tzString = dateObj.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' });
+  const localDate = new Date(tzString);
+  const yyyy = localDate.getFullYear();
+  const mm = String(localDate.getMonth() + 1).padStart(2, '0');
+  const dd = String(localDate.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 /**
  * Creates a payment inside a DB transaction with row locks, per spec section 38/15:
  *   1. Validate role can touch this student_type
@@ -80,6 +90,14 @@ export async function createPayment(user, data) {
     const currentDue = Number(student.total_fee) - alreadyPaid;
 
     if (data.amount <= 0) throw ApiError.badRequest('Payment amount must be greater than zero', 'AMOUNT_INVALID');
+
+    const joiningDateStr = getIndiaDateString(student.joining_date);
+    if (data.paymentDate < joiningDateStr) {
+      throw ApiError.badRequest(
+        `Payment date (${data.paymentDate}) cannot be before the student's joining date (${joiningDateStr})`,
+        'PAYMENT_DATE_BEFORE_JOINING'
+      );
+    }
 
     const allowOverpayment = await getOverpaymentSetting(conn);
     if (data.amount > currentDue && !allowOverpayment) {
