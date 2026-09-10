@@ -14,6 +14,10 @@ export const cancelPaymentSchema = z.object({
   reason: z.string().min(3, 'Please provide a reason'),
 });
 
+export const updatePaymentDateSchema = z.object({
+  paymentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Valid payment date (YYYY-MM-DD) is required'),
+});
+
 export const listPaymentsQuerySchema = z.object({
   date: z.string().optional(),
   fromDate: z.string().optional(),

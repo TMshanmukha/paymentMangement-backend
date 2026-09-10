@@ -109,6 +109,7 @@ export async function createPayment(user, data) {
 
     const tempReceipt = 'TEMP-' + Math.random().toString(36).substring(2, 10);
     const indiaDateTime = getIndiaDateTimeString();
+    const effectivePaymentDate = user.role === 'ADMIN' && data.paymentDate ? data.paymentDate : indiaDateTime.slice(0, 10);
 
     const [result] = await conn.query(
       `INSERT INTO payments
@@ -122,7 +123,7 @@ export async function createPayment(user, data) {
         student.student_type,
         data.amount,
         data.paymentMethod,
-        data.paymentDate,
+        effectivePaymentDate,
         indiaDateTime,
         data.remarks || null,
         user.id,
@@ -296,3 +297,30 @@ async function setPaymentStatus(user, id, newStatus, reason) {
 
 export const cancelPayment = (user, id, reason) => setPaymentStatus(user, id, 'CANCELLED', reason);
 export const reversePayment = (user, id, reason) => setPaymentStatus(user, id, 'REVERSED', reason);
+
+export async function updatePaymentDate(user, id, paymentDate) {
+  if (user.role !== 'ADMIN') throw ApiError.forbidden('Only Admin can update payment date', 'ADMIN_ONLY');
+
+  return withTransaction(async (conn) => {
+    const [rows] = await conn.query('SELECT * FROM payments WHERE id = ? FOR UPDATE', [id]);
+    const payment = rows[0];
+    if (!payment) throw ApiError.notFound('Payment not found', 'PAYMENT_NOT_FOUND');
+    if (payment.status !== 'COMPLETED') {
+      throw ApiError.badRequest(`Cannot change date on a ${payment.status.toLowerCase()} payment`, 'INVALID_STATUS');
+    }
+
+    const oldDate = payment.payment_date;
+    await conn.query('UPDATE payments SET payment_date = ? WHERE id = ?', [paymentDate, id]);
+
+    await writeAudit({
+      conn,
+      userId: user.id,
+      action: 'PAYMENT_DATE_UPDATED',
+      entity: 'payment',
+      entityId: id,
+      description: `Payment ${payment.receipt_number} date updated from ${oldDate} to ${paymentDate} by Admin`,
+    });
+
+    return getPaymentById(user, id);
+  });
+}

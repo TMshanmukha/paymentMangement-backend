@@ -26,3 +26,8 @@ export const reverse = asyncHandler(async (req, res) => {
   const payment = await paymentService.reversePayment(req.user, req.params.id, req.body.reason);
   res.json({ success: true, message: 'Payment reversed', data: payment });
 });
+
+export const updateDate = asyncHandler(async (req, res) => {
+  const payment = await paymentService.updatePaymentDate(req.user, req.params.id, req.body.paymentDate);
+  res.json({ success: true, message: 'Payment date updated successfully', data: payment });
+});
