@@ -91,14 +91,6 @@ export async function createPayment(user, data) {
 
     if (data.amount <= 0) throw ApiError.badRequest('Payment amount must be greater than zero', 'AMOUNT_INVALID');
 
-    const joiningDateStr = getIndiaDateString(student.joining_date);
-    if (data.paymentDate < joiningDateStr) {
-      throw ApiError.badRequest(
-        `Payment date (${data.paymentDate}) cannot be before the student's joining date (${joiningDateStr})`,
-        'PAYMENT_DATE_BEFORE_JOINING'
-      );
-    }
-
     const allowOverpayment = await getOverpaymentSetting(conn);
     if (data.amount > currentDue && !allowOverpayment) {
       throw ApiError.badRequest(
@@ -109,7 +101,7 @@ export async function createPayment(user, data) {
 
     const tempReceipt = 'TEMP-' + Math.random().toString(36).substring(2, 10);
     const indiaDateTime = getIndiaDateTimeString();
-    const effectivePaymentDate = user.role === 'ADMIN' && data.paymentDate ? data.paymentDate : indiaDateTime.slice(0, 10);
+    const effectivePaymentDate = data.paymentDate || indiaDateTime.slice(0, 10);
 
     const [result] = await conn.query(
       `INSERT INTO payments
