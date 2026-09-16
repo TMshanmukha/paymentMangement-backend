@@ -20,6 +20,10 @@ function seenRecently(key) {
   return false;
 }
 
+function releaseKey(key) {
+  if (key) recentRequestIds.delete(key);
+}
+
 async function getOverpaymentSetting(conn) {
   const [rows] = await conn.query("SELECT setting_value FROM app_settings WHERE setting_key = 'allow_overpayment' LIMIT 1");
   return rows[0]?.setting_value === 'true';
@@ -64,102 +68,123 @@ export async function createPayment(user, data) {
   }
 
   if (user.role === 'ADMIN' && !data.digitalSignature) {
+    releaseKey(data.clientRequestId);
     throw ApiError.badRequest('Digital signature is required for admin payments', 'SIGNATURE_REQUIRED');
   }
 
   const scope = scopeForRole(user.role);
 
-  return withTransaction(async (conn) => {
-    const [studentRows] = await conn.query('SELECT * FROM students WHERE id = ? FOR UPDATE', [data.studentId]);
-    const student = studentRows[0];
-    if (!student) throw ApiError.notFound('Student not found', 'STUDENT_NOT_FOUND');
-    if (student.status !== 'ACTIVE') throw ApiError.badRequest('Cannot record payment for an inactive student', 'STUDENT_INACTIVE');
+  try {
+    return await withTransaction(async (conn) => {
+      const [studentRows] = await conn.query('SELECT * FROM students WHERE id = ? FOR UPDATE', [data.studentId]);
+      const student = studentRows[0];
+      if (!student) throw ApiError.notFound('Student not found', 'STUDENT_NOT_FOUND');
+      if (student.status !== 'ACTIVE') throw ApiError.badRequest('Cannot record payment for an inactive student', 'STUDENT_INACTIVE');
 
-    if (scope && scope !== student.student_type) {
-      throw ApiError.forbidden(
-        `${scope === 'SCHOOL' ? 'School' : 'Tuition'} accountants cannot record payments for ${student.student_type.toLowerCase()} students`,
-        'STUDENT_TYPE_NOT_ALLOWED'
+      if (scope && scope !== student.student_type) {
+        throw ApiError.forbidden(
+          `${scope === 'SCHOOL' ? 'School' : 'Tuition'} accountants cannot record payments for ${student.student_type.toLowerCase()} students`,
+          'STUDENT_TYPE_NOT_ALLOWED'
+        );
+      }
+
+      const [paidRows] = await conn.query(
+        "SELECT COALESCE(SUM(amount),0) AS paid FROM payments WHERE student_id = ? AND status = 'COMPLETED' FOR UPDATE",
+        [data.studentId]
       );
-    }
+      const alreadyPaid = Number(paidRows[0].paid);
+      const currentDue = Number(student.total_fee) - alreadyPaid;
 
-    const [paidRows] = await conn.query(
-      "SELECT COALESCE(SUM(amount),0) AS paid FROM payments WHERE student_id = ? AND status = 'COMPLETED' FOR UPDATE",
-      [data.studentId]
-    );
-    const alreadyPaid = Number(paidRows[0].paid);
-    const currentDue = Number(student.total_fee) - alreadyPaid;
+      if (data.amount <= 0) throw ApiError.badRequest('Payment amount must be greater than zero', 'AMOUNT_INVALID');
 
-    if (data.amount <= 0) throw ApiError.badRequest('Payment amount must be greater than zero', 'AMOUNT_INVALID');
+      const allowOverpayment = await getOverpaymentSetting(conn);
+      if (data.amount > currentDue && !allowOverpayment) {
+        throw ApiError.badRequest(
+          `Payment amount (₹${data.amount}) exceeds the remaining due (₹${currentDue})`,
+          'PAYMENT_EXCEEDS_DUE'
+        );
+      }
 
-    const allowOverpayment = await getOverpaymentSetting(conn);
-    if (data.amount > currentDue && !allowOverpayment) {
-      throw ApiError.badRequest(
-        `Payment amount (₹${data.amount}) exceeds the remaining due (₹${currentDue})`,
-        'PAYMENT_EXCEEDS_DUE'
+      const tempReceipt = 'TEMP-' + Math.random().toString(36).substring(2, 10);
+      const indiaDateTime = getIndiaDateTimeString();
+      const effectivePaymentDate = data.paymentDate ? String(data.paymentDate).slice(0, 10) : indiaDateTime.slice(0, 10);
+      const effectivePaymentTime = `${effectivePaymentDate} ${indiaDateTime.slice(11)}`;
+
+      let academicYearId = student.academic_year_id;
+      if (!academicYearId) {
+        const [ayRows] = await conn.query(
+          'SELECT id FROM academic_years WHERE ? BETWEEN start_date AND end_date LIMIT 1',
+          [effectivePaymentDate]
+        );
+        if (ayRows[0]?.id) {
+          academicYearId = ayRows[0].id;
+        } else {
+          const [activeAy] = await conn.query('SELECT id FROM academic_years WHERE is_active = 1 LIMIT 1');
+          academicYearId = activeAy[0]?.id || 1;
+        }
+      }
+
+      const [result] = await conn.query(
+        `INSERT INTO payments
+           (receipt_number, student_id, academic_year_id, student_type, amount, payment_method,
+            payment_date, payment_time, remarks, received_by, status, digital_signature)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', ?)`,
+        [
+          tempReceipt,
+          data.studentId,
+          academicYearId,
+          student.student_type,
+          data.amount,
+          data.paymentMethod,
+          effectivePaymentDate,
+          effectivePaymentTime,
+          data.remarks || null,
+          user.id,
+          user.role === 'ADMIN' ? (data.digitalSignature || null) : null,
+        ]
       );
-    }
 
-    const tempReceipt = 'TEMP-' + Math.random().toString(36).substring(2, 10);
-    const indiaDateTime = getIndiaDateTimeString();
-    const effectivePaymentDate = data.paymentDate || indiaDateTime.slice(0, 10);
+      const insertId = result.insertId;
+      const receiptNumber = `REC-${String(insertId).padStart(6, '0')}`;
 
-    const [result] = await conn.query(
-      `INSERT INTO payments
-         (receipt_number, student_id, academic_year_id, student_type, amount, payment_method,
-          payment_date, payment_time, remarks, received_by, status, digital_signature)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', ?)`,
-      [
-        tempReceipt,
-        data.studentId,
-        student.academic_year_id,
-        student.student_type,
-        data.amount,
-        data.paymentMethod,
-        effectivePaymentDate,
-        indiaDateTime,
-        data.remarks || null,
-        user.id,
-        user.role === 'ADMIN' ? (data.digitalSignature || null) : null,
-      ]
-    );
+      await conn.query(
+        'UPDATE payments SET receipt_number = ? WHERE id = ?',
+        [receiptNumber, insertId]
+      );
 
-    const insertId = result.insertId;
-    const receiptNumber = `REC-${String(insertId).padStart(6, '0')}`;
+      await writeAudit({
+        conn,
+        userId: user.id,
+        action: 'PAYMENT_CREATED',
+        entity: 'payment',
+        entityId: result.insertId,
+        description: `₹${data.amount} (${data.paymentMethod}) recorded for student #${data.studentId} on ${effectivePaymentDate}`,
+      });
 
-    await conn.query(
-      'UPDATE payments SET receipt_number = ? WHERE id = ?',
-      [receiptNumber, insertId]
-    );
-
-    await writeAudit({
-      conn,
-      userId: user.id,
-      action: 'PAYMENT_CREATED',
-      entity: 'payment',
-      entityId: result.insertId,
-      description: `₹${data.amount} (${data.paymentMethod}) recorded for student #${data.studentId}`,
+      const [paymentRows] = await conn.query(
+        `SELECT p.*, s.name AS student_name, s.parent_name, s.student_code, s.class, s.section,
+                s.total_fee, u.full_name AS received_by_name
+         FROM payments p
+         JOIN students s ON s.id = p.student_id
+         JOIN users u ON u.id = p.received_by
+         WHERE p.id = ?`,
+        [result.insertId]
+      );
+      const payment = paymentRows[0];
+      const [sumRows] = await conn.query(
+        "SELECT COALESCE(SUM(amount),0) AS paid FROM payments WHERE student_id = ? AND status = 'COMPLETED'",
+        [payment.student_id]
+      );
+      const totalPaid = Number(sumRows[0].paid);
+      payment.total_paid_to_date = totalPaid;
+      payment.previous_paid = payment.status === 'COMPLETED' ? totalPaid - Number(payment.amount) : null;
+      payment.remaining_due = Number(payment.total_fee) - totalPaid;
+      return payment;
     });
-
-    const [paymentRows] = await conn.query(
-      `SELECT p.*, s.name AS student_name, s.parent_name, s.student_code, s.class, s.section,
-              s.total_fee, u.full_name AS received_by_name
-       FROM payments p
-       JOIN students s ON s.id = p.student_id
-       JOIN users u ON u.id = p.received_by
-       WHERE p.id = ?`,
-      [result.insertId]
-    );
-    const payment = paymentRows[0];
-    const [sumRows] = await conn.query(
-      "SELECT COALESCE(SUM(amount),0) AS paid FROM payments WHERE student_id = ? AND status = 'COMPLETED'",
-      [payment.student_id]
-    );
-    const totalPaid = Number(sumRows[0].paid);
-    payment.total_paid_to_date = totalPaid;
-    payment.previous_paid = payment.status === 'COMPLETED' ? totalPaid - Number(payment.amount) : null;
-    payment.remaining_due = Number(payment.total_fee) - totalPaid;
-    return payment;
-  });
+  } catch (err) {
+    releaseKey(data.clientRequestId);
+    throw err;
+  }
 }
 
 export async function getPaymentById(user, id) {

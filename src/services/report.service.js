@@ -197,6 +197,8 @@ export async function getDashboardSummary(user, academicYearId) {
   );
 
   const monthlyChart = [];
+  const coveredKeys = new Set();
+
   if (ayRow) {
     const start = new Date(ayRow.start_date);
     const end = new Date(ayRow.end_date);
@@ -206,15 +208,34 @@ export async function getDashboardSummary(user, academicYearId) {
     
     while (current <= last) {
       const label = current.toLocaleDateString('en-US', { month: 'short' }) + ' ' + current.getFullYear().toString().slice(-2);
+      const key = label.toLowerCase().trim();
+      coveredKeys.add(key);
       monthlyChart.push({
         month: label,
         school: 0,
         tuition: 0,
-        total: 0
+        total: 0,
+        sortDate: new Date(current).getTime(),
       });
       current.setMonth(current.getMonth() + 1);
     }
   }
+
+  for (const r of chartRows) {
+    const key = String(r.month_label).toLowerCase().trim();
+    if (!coveredKeys.has(key)) {
+      coveredKeys.add(key);
+      monthlyChart.push({
+        month: r.month_label,
+        school: 0,
+        tuition: 0,
+        total: 0,
+        sortDate: r.sort_date ? new Date(r.sort_date).getTime() : Date.now(),
+      });
+    }
+  }
+
+  monthlyChart.sort((a, b) => (a.sortDate || 0) - (b.sortDate || 0));
 
   const dbChartMap = new Map(
     chartRows.map(r => [String(r.month_label).toLowerCase().trim(), r])
@@ -231,7 +252,12 @@ export async function getDashboardSummary(user, academicYearId) {
         total: scope === 'SCHOOL' ? Number(row.school) : (scope === 'TUITION' ? Number(row.tuition) : Number(row.total))
       };
     }
-    return m;
+    return {
+      month: m.month,
+      school: m.school,
+      tuition: m.tuition,
+      total: m.total,
+    };
   });
 
   return {
