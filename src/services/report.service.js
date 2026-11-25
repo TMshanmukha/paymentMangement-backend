@@ -37,8 +37,8 @@ export async function getDashboardSummary(user, academicYearId) {
 
   const [[collectionRow]] = await pool.query(
     `SELECT COALESCE(SUM(amount), 0) AS today_collection, COUNT(*) AS today_count
-     FROM payments WHERE status='COMPLETED' AND payment_date = ? ${sc.sql} AND academic_year_id = ?`,
-    sc.param ? [todayIST, sc.param, academicYearId] : [todayIST, academicYearId]
+     FROM payments WHERE status='COMPLETED' AND (payment_date = ? OR DATE(payment_time) = ?) ${sc.sql} AND academic_year_id = ?`,
+    sc.param ? [todayIST, todayIST, sc.param, academicYearId] : [todayIST, todayIST, academicYearId]
   );
 
   const [[dueRow]] = await pool.query(
@@ -76,50 +76,50 @@ export async function getDashboardSummary(user, academicYearId) {
 
   const [[schoolRow]] = await pool.query(
     `SELECT COALESCE(SUM(amount), 0) AS school_collection
-     FROM payments WHERE status='COMPLETED' AND payment_date = ? AND student_type='SCHOOL' AND academic_year_id = ?`,
-    [todayIST, academicYearId]
+     FROM payments WHERE status='COMPLETED' AND (payment_date = ? OR DATE(payment_time) = ?) AND student_type='SCHOOL' AND academic_year_id = ?`,
+    [todayIST, todayIST, academicYearId]
   );
 
   const [[tuitionRow]] = await pool.query(
     `SELECT COALESCE(SUM(amount), 0) AS tuition_collection
-     FROM payments WHERE status='COMPLETED' AND payment_date = ? AND student_type='TUITION' AND academic_year_id = ?`,
-    [todayIST, academicYearId]
+     FROM payments WHERE status='COMPLETED' AND (payment_date = ? OR DATE(payment_time) = ?) AND student_type='TUITION' AND academic_year_id = ?`,
+    [todayIST, todayIST, academicYearId]
   );
 
   const [[cashRow]] = await pool.query(
     `SELECT COALESCE(SUM(amount), 0) AS cash_collection
-     FROM payments WHERE status='COMPLETED' AND payment_date = ? AND payment_method='CASH' ${sc.sql} AND academic_year_id = ?`,
-    sc.param ? [todayIST, sc.param, academicYearId] : [todayIST, academicYearId]
+     FROM payments WHERE status='COMPLETED' AND (payment_date = ? OR DATE(payment_time) = ?) AND payment_method='CASH' ${sc.sql} AND academic_year_id = ?`,
+    sc.param ? [todayIST, todayIST, sc.param, academicYearId] : [todayIST, todayIST, academicYearId]
   );
 
   const [[upiRow]] = await pool.query(
     `SELECT COALESCE(SUM(amount), 0) AS upi_collection
-     FROM payments WHERE status='COMPLETED' AND payment_date = ? AND payment_method='UPI' ${sc.sql} AND academic_year_id = ?`,
-    sc.param ? [todayIST, sc.param, academicYearId] : [todayIST, academicYearId]
+     FROM payments WHERE status='COMPLETED' AND (payment_date = ? OR DATE(payment_time) = ?) AND payment_method='UPI' ${sc.sql} AND academic_year_id = ?`,
+    sc.param ? [todayIST, todayIST, sc.param, academicYearId] : [todayIST, todayIST, academicYearId]
   );
 
   const [[schoolCashRow]] = await pool.query(
     `SELECT COALESCE(SUM(amount), 0) AS cash_collection
-     FROM payments WHERE status='COMPLETED' AND payment_date = ? AND student_type='SCHOOL' AND payment_method='CASH' AND academic_year_id = ?`,
-    [todayIST, academicYearId]
+     FROM payments WHERE status='COMPLETED' AND (payment_date = ? OR DATE(payment_time) = ?) AND student_type='SCHOOL' AND payment_method='CASH' AND academic_year_id = ?`,
+    [todayIST, todayIST, academicYearId]
   );
 
   const [[schoolUpiRow]] = await pool.query(
     `SELECT COALESCE(SUM(amount), 0) AS upi_collection
-     FROM payments WHERE status='COMPLETED' AND payment_date = ? AND student_type='SCHOOL' AND payment_method='UPI' AND academic_year_id = ?`,
-    [todayIST, academicYearId]
+     FROM payments WHERE status='COMPLETED' AND (payment_date = ? OR DATE(payment_time) = ?) AND student_type='SCHOOL' AND payment_method='UPI' AND academic_year_id = ?`,
+    [todayIST, todayIST, academicYearId]
   );
 
   const [[tuitionCashRow]] = await pool.query(
     `SELECT COALESCE(SUM(amount), 0) AS cash_collection
-     FROM payments WHERE status='COMPLETED' AND payment_date = ? AND student_type='TUITION' AND payment_method='CASH' AND academic_year_id = ?`,
-    [todayIST, academicYearId]
+     FROM payments WHERE status='COMPLETED' AND (payment_date = ? OR DATE(payment_time) = ?) AND student_type='TUITION' AND payment_method='CASH' AND academic_year_id = ?`,
+    [todayIST, todayIST, academicYearId]
   );
 
   const [[tuitionUpiRow]] = await pool.query(
     `SELECT COALESCE(SUM(amount), 0) AS upi_collection
-     FROM payments WHERE status='COMPLETED' AND payment_date = ? AND student_type='TUITION' AND payment_method='UPI' AND academic_year_id = ?`,
-    [todayIST, academicYearId]
+     FROM payments WHERE status='COMPLETED' AND (payment_date = ? OR DATE(payment_time) = ?) AND student_type='TUITION' AND payment_method='UPI' AND academic_year_id = ?`,
+    [todayIST, todayIST, academicYearId]
   );
 
   const [[schoolOverallCollRow]] = await pool.query(
@@ -354,8 +354,8 @@ export async function getDailyReport(user, date, academicYearId, studentType = n
             COALESCE(SUM(CASE WHEN payment_method='UPI' THEN amount ELSE 0 END),0) AS upi_collection,
             COALESCE(SUM(CASE WHEN student_type='SCHOOL' THEN amount ELSE 0 END),0) AS school_collection,
             COALESCE(SUM(CASE WHEN student_type='TUITION' THEN amount ELSE 0 END),0) AS tuition_collection
-     FROM payments p WHERE status='COMPLETED' AND payment_date = ? ${sc.sql} AND p.academic_year_id = ?`,
-    sc.param ? [targetDate, sc.param, academicYearId] : [targetDate, academicYearId]
+     FROM payments p WHERE status='COMPLETED' AND (p.payment_date = ? OR DATE(p.payment_time) = ?) ${sc.sql} AND p.academic_year_id = ?`,
+    sc.param ? [targetDate, targetDate, sc.param, academicYearId] : [targetDate, targetDate, academicYearId]
   );
 
   const [collectionRows] = await pool.query(
@@ -369,9 +369,9 @@ export async function getDailyReport(user, date, academicYearId, studentType = n
        SUM(p.amount) AS overall_total
      FROM payments p
      JOIN users u ON u.id = p.received_by
-     WHERE p.status = 'COMPLETED' AND p.payment_date = ? ${sc.sql} AND p.academic_year_id = ?
+     WHERE p.status = 'COMPLETED' AND (p.payment_date = ? OR DATE(p.payment_time) = ?) ${sc.sql} AND p.academic_year_id = ?
      GROUP BY p.received_by, u.full_name, u.role`,
-    sc.param ? [targetDate, sc.param, academicYearId] : [targetDate, academicYearId]
+    sc.param ? [targetDate, targetDate, sc.param, academicYearId] : [targetDate, targetDate, academicYearId]
   );
 
   const [expenseRows] = await pool.query(
