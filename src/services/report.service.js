@@ -16,15 +16,29 @@ function getEffectiveScope(userRole, filterType) {
   return null; // All
 }
 
+function getTodayIndiaDate() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const y = parts.find((p) => p.type === 'year').value;
+  const m = parts.find((p) => p.type === 'month').value;
+  const d = parts.find((p) => p.type === 'day').value;
+  return `${y}-${m}-${d}`;
+}
+
 export async function getDashboardSummary(user, academicYearId) {
   const scope = scopeForRole(user.role);
   const sc = scopeClause(scope);
   const scp = scopeClause(scope, 'p');
+  const todayIST = getTodayIndiaDate();
 
   const [[collectionRow]] = await pool.query(
     `SELECT COALESCE(SUM(amount), 0) AS today_collection, COUNT(*) AS today_count
-     FROM payments WHERE status='COMPLETED' AND payment_date = CURDATE() ${sc.sql} AND academic_year_id = ?`,
-    sc.param ? [sc.param, academicYearId] : [academicYearId]
+     FROM payments WHERE status='COMPLETED' AND payment_date = ? ${sc.sql} AND academic_year_id = ?`,
+    sc.param ? [todayIST, sc.param, academicYearId] : [todayIST, academicYearId]
   );
 
   const [[dueRow]] = await pool.query(
@@ -56,56 +70,56 @@ export async function getDashboardSummary(user, academicYearId) {
 
   const [[expenseRow]] = await pool.query(
     `SELECT COALESCE(SUM(amount), 0) AS today_expenses
-     FROM expenses WHERE status='ACTIVE' AND expense_date = CURDATE() ${scope ? 'AND expense_type = ?' : ''} AND academic_year_id = ?`,
-    scope ? [scope, academicYearId] : [academicYearId]
+     FROM expenses WHERE status='ACTIVE' AND expense_date = ? ${scope ? 'AND expense_type = ?' : ''} AND academic_year_id = ?`,
+    scope ? [todayIST, scope, academicYearId] : [todayIST, academicYearId]
   );
 
   const [[schoolRow]] = await pool.query(
     `SELECT COALESCE(SUM(amount), 0) AS school_collection
-     FROM payments WHERE status='COMPLETED' AND payment_date = CURDATE() AND student_type='SCHOOL' AND academic_year_id = ?`,
-    [academicYearId]
+     FROM payments WHERE status='COMPLETED' AND payment_date = ? AND student_type='SCHOOL' AND academic_year_id = ?`,
+    [todayIST, academicYearId]
   );
 
   const [[tuitionRow]] = await pool.query(
     `SELECT COALESCE(SUM(amount), 0) AS tuition_collection
-     FROM payments WHERE status='COMPLETED' AND payment_date = CURDATE() AND student_type='TUITION' AND academic_year_id = ?`,
-    [academicYearId]
+     FROM payments WHERE status='COMPLETED' AND payment_date = ? AND student_type='TUITION' AND academic_year_id = ?`,
+    [todayIST, academicYearId]
   );
 
   const [[cashRow]] = await pool.query(
     `SELECT COALESCE(SUM(amount), 0) AS cash_collection
-     FROM payments WHERE status='COMPLETED' AND payment_date = CURDATE() AND payment_method='CASH' ${sc.sql} AND academic_year_id = ?`,
-    sc.param ? [sc.param, academicYearId] : [academicYearId]
+     FROM payments WHERE status='COMPLETED' AND payment_date = ? AND payment_method='CASH' ${sc.sql} AND academic_year_id = ?`,
+    sc.param ? [todayIST, sc.param, academicYearId] : [todayIST, academicYearId]
   );
 
   const [[upiRow]] = await pool.query(
     `SELECT COALESCE(SUM(amount), 0) AS upi_collection
-     FROM payments WHERE status='COMPLETED' AND payment_date = CURDATE() AND payment_method='UPI' ${sc.sql} AND academic_year_id = ?`,
-    sc.param ? [sc.param, academicYearId] : [academicYearId]
+     FROM payments WHERE status='COMPLETED' AND payment_date = ? AND payment_method='UPI' ${sc.sql} AND academic_year_id = ?`,
+    sc.param ? [todayIST, sc.param, academicYearId] : [todayIST, academicYearId]
   );
 
   const [[schoolCashRow]] = await pool.query(
     `SELECT COALESCE(SUM(amount), 0) AS cash_collection
-     FROM payments WHERE status='COMPLETED' AND payment_date = CURDATE() AND student_type='SCHOOL' AND payment_method='CASH' AND academic_year_id = ?`,
-    [academicYearId]
+     FROM payments WHERE status='COMPLETED' AND payment_date = ? AND student_type='SCHOOL' AND payment_method='CASH' AND academic_year_id = ?`,
+    [todayIST, academicYearId]
   );
 
   const [[schoolUpiRow]] = await pool.query(
     `SELECT COALESCE(SUM(amount), 0) AS upi_collection
-     FROM payments WHERE status='COMPLETED' AND payment_date = CURDATE() AND student_type='SCHOOL' AND payment_method='UPI' AND academic_year_id = ?`,
-    [academicYearId]
+     FROM payments WHERE status='COMPLETED' AND payment_date = ? AND student_type='SCHOOL' AND payment_method='UPI' AND academic_year_id = ?`,
+    [todayIST, academicYearId]
   );
 
   const [[tuitionCashRow]] = await pool.query(
     `SELECT COALESCE(SUM(amount), 0) AS cash_collection
-     FROM payments WHERE status='COMPLETED' AND payment_date = CURDATE() AND student_type='TUITION' AND payment_method='CASH' AND academic_year_id = ?`,
-    [academicYearId]
+     FROM payments WHERE status='COMPLETED' AND payment_date = ? AND student_type='TUITION' AND payment_method='CASH' AND academic_year_id = ?`,
+    [todayIST, academicYearId]
   );
 
   const [[tuitionUpiRow]] = await pool.query(
     `SELECT COALESCE(SUM(amount), 0) AS upi_collection
-     FROM payments WHERE status='COMPLETED' AND payment_date = CURDATE() AND student_type='TUITION' AND payment_method='UPI' AND academic_year_id = ?`,
-    [academicYearId]
+     FROM payments WHERE status='COMPLETED' AND payment_date = ? AND student_type='TUITION' AND payment_method='UPI' AND academic_year_id = ?`,
+    [todayIST, academicYearId]
   );
 
   const [[schoolOverallCollRow]] = await pool.query(
@@ -259,6 +273,22 @@ export async function getDashboardSummary(user, academicYearId) {
       total: m.total,
     };
   });
+
+  if (user.role !== 'ADMIN') {
+    return {
+      todayCollection: Number(collectionRow.today_collection),
+      todayTransactionCount: Number(collectionRow.today_count),
+      todayExpenses: Number(expenseRow.today_expenses),
+      todayNetCollection: Number(collectionRow.today_collection) - Number(expenseRow.today_expenses),
+      schoolCollection: Number(schoolRow.school_collection),
+      tuitionCollection: Number(tuitionRow.tuition_collection),
+      cashCollection: Number(cashRow.cash_collection),
+      upiCollection: Number(upiRow.upi_collection),
+      recentPayments,
+      recentExpenses,
+      monthlyChart: [],
+    };
+  }
 
   return {
     todayCollection: Number(collectionRow.today_collection),

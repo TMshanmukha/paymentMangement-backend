@@ -34,4 +34,8 @@ export const env = {
 
   CORS_ORIGIN:
     process.env.CORS_ORIGIN || 'http://localhost:5173',
+
+  ADMIN_RESET_EMAIL: process.env.ADMIN_RESET_EMAIL || 'shanmu547@gmail.com',
+  RESEND_API_KEY: process.env.RESEND_API_KEY || '',
+  RESEND_FROM_EMAIL: process.env.RESEND_FROM_EMAIL || 'EduLedger Security <onboarding@resend.dev>',
 };

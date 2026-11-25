@@ -38,3 +38,23 @@ export const me = asyncHandler(async (req, res) => {
   const user = await authService.getCurrentUser(req.user.id);
   res.json({ success: true, data: user });
 });
+
+export const forgotPassword = asyncHandler(async (req, res) => {
+  const { username } = req.body;
+  let clientOrigin = req.headers.origin;
+  if (!clientOrigin && req.headers.referer) {
+    try {
+      clientOrigin = new URL(req.headers.referer).origin;
+    } catch {
+      // ignore
+    }
+  }
+  const result = await authService.requestAdminPasswordReset(username, clientOrigin);
+  res.json({ success: true, message: result.message, data: result });
+});
+
+export const resetPassword = asyncHandler(async (req, res) => {
+  const { token, username, otp, newPassword } = req.body;
+  const result = await authService.verifyAndResetPassword({ token, usernameOrEmail: username, otp, newPassword });
+  res.json({ success: true, message: result.message, data: result });
+});
