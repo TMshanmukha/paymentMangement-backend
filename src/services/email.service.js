@@ -1,5 +1,6 @@
 import nodemailer from 'nodemailer';
 import { env } from '../config/env.js';
+import { ApiError } from '../utils/ApiError.js';
 
 /**
  * Sends a clean, simple password reset email featuring the school name,
@@ -8,6 +9,8 @@ import { env } from '../config/env.js';
 export async function sendPasswordResetLinkEmail({ email, resetUrl, minutesValid = 15, schoolName = 'VEDAVYAS E.M SCHOOL' }) {
   const smtpUser = (env.SMTP_USER || process.env.SMTP_USER || '').trim();
   const smtpPass = (env.SMTP_PASS || process.env.SMTP_PASS || '').replace(/\s+/g, '');
+  const brevoKey = (env.BREVO_API_KEY || process.env.BREVO_API_KEY || '').trim();
+  const brevoSender = (env.BREVO_SENDER_EMAIL || process.env.BREVO_SENDER_EMAIL || smtpUser || '').trim();
   const apiKey = env.RESEND_API_KEY || process.env.RESEND_API_KEY;
   const fromEmail = env.RESEND_FROM_EMAIL || process.env.RESEND_FROM_EMAIL || 'EduLedger Security <onboarding@resend.dev>';
 
@@ -59,39 +62,73 @@ export async function sendPasswordResetLinkEmail({ email, resetUrl, minutesValid
 </html>`;
 
   console.log(`[AUTH] Dispatching password reset email to ${email}: ${resetUrl}`);
+  const errors = [];
 
-  // 1. Primary: Gmail / Custom SMTP via Nodemailer (works for any recipient email)
+  // 1. Primary: Gmail / Custom SMTP via Nodemailer (IPv4 forced, tries port 465 then 587)
   if (smtpUser && smtpPass) {
-    try {
-      const transporter = nodemailer.createTransport({
-        host: env.SMTP_HOST || 'smtp.gmail.com',
-        port: Number(env.SMTP_PORT || 465),
-        secure: Number(env.SMTP_PORT || 465) === 465,
-        auth: {
-          user: smtpUser,
-          pass: smtpPass,
-        },
-      });
+    const portsToTry = Array.from(new Set([Number(env.SMTP_PORT || 465), 587]));
+    for (const port of portsToTry) {
+      try {
+        const transporter = nodemailer.createTransport({
+          host: env.SMTP_HOST || 'smtp.gmail.com',
+          port,
+          secure: port === 465,
+          requireTLS: port === 587,
+          family: 4, // Force IPv4 to avoid ENETUNREACH on cloud hosts
+          connectionTimeout: 8000,
+          greetingTimeout: 8000,
+          auth: {
+            user: smtpUser,
+            pass: smtpPass,
+          },
+        });
 
-      const info = await transporter.sendMail({
-        from: `"${schoolName} Security" <${smtpUser}>`,
-        to: email,
-        subject: `${schoolName} - Reset Your Admin Password 🔐`,
-        html,
-      });
+        const info = await transporter.sendMail({
+          from: `"${schoolName} Security" <${smtpUser}>`,
+          to: email,
+          subject: `${schoolName} - Reset Your Admin Password 🔐`,
+          html,
+        });
 
-      console.log(`[AUTH] Password reset email sent via SMTP to ${email} (messageId: ${info.messageId})`);
-      return { sent: true, provider: 'smtp', messageId: info.messageId };
-    } catch (err) {
-      console.error('Failed to send email via SMTP:', err.message);
-      if (!apiKey) {
-        return { fallback: true, error: err.message, resetUrl };
+        console.log(`[AUTH] Password reset email sent via SMTP (port ${port}) to ${email} (messageId: ${info.messageId})`);
+        return { sent: true, provider: 'smtp', messageId: info.messageId };
+      } catch (err) {
+        console.error(`Failed to send email via SMTP (port ${port}):`, err.message);
+        errors.push(`SMTP(${port}): ${err.message}`);
       }
-      // Fall through to Resend if configured
     }
   }
 
-  // 2. Secondary: Resend API fallback
+  // 2. Secondary: Brevo HTTP API (port 443, works on all cloud hosts & any verified Gmail sender)
+  if (brevoKey && brevoSender) {
+    try {
+      const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: {
+          'api-key': brevoKey,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          sender: { name: `${schoolName} Security`, email: brevoSender },
+          to: [{ email }],
+          subject: `${schoolName} - Reset Your Admin Password 🔐`,
+          htmlContent: html,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        console.error('Brevo API error:', data);
+        throw new Error(data.message || 'Failed to send reset email via Brevo');
+      }
+      console.log(`[AUTH] Password reset email sent via Brevo to ${email}`);
+      return { sent: true, provider: 'brevo', data };
+    } catch (err) {
+      console.error('Failed to send email via Brevo API:', err.message);
+      errors.push(`Brevo: ${err.message}`);
+    }
+  }
+
+  // 3. Tertiary: Resend API fallback
   if (apiKey) {
     try {
       const response = await fetch('https://api.resend.com/emails', {
@@ -115,12 +152,19 @@ export async function sendPasswordResetLinkEmail({ email, resetUrl, minutesValid
       return data;
     } catch (err) {
       console.error('Failed to send email via Resend API:', err.message);
-      return { fallback: true, error: err.message, resetUrl };
+      errors.push(`Resend: ${err.message}`);
     }
-  } else {
-    console.log(`[DEV MODE] No SMTP or Resend credentials configured. Reset URL for ${email}: ${resetUrl}`);
-    return { mock: true, resetUrl };
   }
+
+  if (errors.length > 0) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new ApiError(502, `Could not deliver password reset email (${errors[0]}). Please check email server configuration.`, 'EMAIL_DELIVERY_FAILED');
+    }
+    return { fallback: true, error: errors.join(' | '), resetUrl };
+  }
+
+  console.log(`[DEV MODE] No SMTP, Brevo, or Resend credentials configured. Reset URL for ${email}: ${resetUrl}`);
+  return { mock: true, resetUrl };
 }
 
 // Backward compatibility alias
