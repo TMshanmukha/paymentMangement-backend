@@ -1,3 +1,4 @@
+import nodemailer from 'nodemailer';
 import { env } from '../config/env.js';
 
 /**
@@ -5,6 +6,8 @@ import { env } from '../config/env.js';
  * the customized Vedavyas header banner, and the direct reset password link.
  */
 export async function sendPasswordResetLinkEmail({ email, resetUrl, minutesValid = 15, schoolName = 'VEDAVYAS E.M SCHOOL' }) {
+  const smtpUser = (env.SMTP_USER || process.env.SMTP_USER || '').trim();
+  const smtpPass = (env.SMTP_PASS || process.env.SMTP_PASS || '').replace(/\s+/g, '');
   const apiKey = env.RESEND_API_KEY || process.env.RESEND_API_KEY;
   const fromEmail = env.RESEND_FROM_EMAIL || process.env.RESEND_FROM_EMAIL || 'EduLedger Security <onboarding@resend.dev>';
 
@@ -57,6 +60,38 @@ export async function sendPasswordResetLinkEmail({ email, resetUrl, minutesValid
 
   console.log(`[AUTH] Dispatching password reset email to ${email}: ${resetUrl}`);
 
+  // 1. Primary: Gmail / Custom SMTP via Nodemailer (works for any recipient email)
+  if (smtpUser && smtpPass) {
+    try {
+      const transporter = nodemailer.createTransport({
+        host: env.SMTP_HOST || 'smtp.gmail.com',
+        port: Number(env.SMTP_PORT || 465),
+        secure: Number(env.SMTP_PORT || 465) === 465,
+        auth: {
+          user: smtpUser,
+          pass: smtpPass,
+        },
+      });
+
+      const info = await transporter.sendMail({
+        from: `"${schoolName} Security" <${smtpUser}>`,
+        to: email,
+        subject: `${schoolName} - Reset Your Admin Password 🔐`,
+        html,
+      });
+
+      console.log(`[AUTH] Password reset email sent via SMTP to ${email} (messageId: ${info.messageId})`);
+      return { sent: true, provider: 'smtp', messageId: info.messageId };
+    } catch (err) {
+      console.error('Failed to send email via SMTP:', err.message);
+      if (!apiKey) {
+        return { fallback: true, error: err.message, resetUrl };
+      }
+      // Fall through to Resend if configured
+    }
+  }
+
+  // 2. Secondary: Resend API fallback
   if (apiKey) {
     try {
       const response = await fetch('https://api.resend.com/emails', {
@@ -83,7 +118,7 @@ export async function sendPasswordResetLinkEmail({ email, resetUrl, minutesValid
       return { fallback: true, error: err.message, resetUrl };
     }
   } else {
-    console.log(`[DEV MODE] Resend API key missing. Reset URL for ${email}: ${resetUrl}`);
+    console.log(`[DEV MODE] No SMTP or Resend credentials configured. Reset URL for ${email}: ${resetUrl}`);
     return { mock: true, resetUrl };
   }
 }
